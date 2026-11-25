@@ -1,0 +1,58 @@
+name: Build rankings and deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Daily, after the WCA's nightly export (published around 00:30 UTC).
+    - cron: "15 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+      - name: Download the WCA results export
+        run: |
+          set -euo pipefail
+          url=$(curl -fsSL https://www.worldcubeassociation.org/api/v0/export/public | jq -r .tsv_url)
+          mkdir -p .cache
+          curl -fsSL -o .cache/export.zip "$url"
+          unzip -q -o .cache/export.zip -d .cache/tsv
+          rm .cache/export.zip .cache/tsv/WCA_export_scrambles.tsv
+          cat .cache/tsv/metadata.json
+
+      - run: npm run data
+      - run: npm run build
+        env:
+          BASE_PATH: /${{ github.event.repository.name }}/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

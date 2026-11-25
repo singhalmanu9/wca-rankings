@@ -1,0 +1,25 @@
+{
+  "name": "wca-rankings",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "data": "node --max-old-space-size=8192 --import tsx pipeline/build.ts",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "2.9.1",
+    "@types/node": "22.9.0",
+    "tsx": "4.19.2",
+    "typescript": "5.6.3",
+    "vite": "5.4.11",
+    "vitest": "2.1.8"
+  },
+  "dependencies": {
+    "preact": "10.24.3"
+  }
+}

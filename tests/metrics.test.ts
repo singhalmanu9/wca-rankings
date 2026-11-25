@@ -1,0 +1,173 @@
+import { describe, expect, it } from "vitest";
+import { METRICS, type MetricContext, type Round } from "../pipeline/metrics.ts";
+import { rankRegions } from "../pipeline/regions.ts";
+import { decodeMulti, formatCentiseconds, formatSingle, type EventInfo } from "../pipeline/units.ts";
+
+const ev = (id: string, format: EventInfo["format"] = "time"): EventInfo => ({ id, name: id, format, rank: 1 });
+const E333 = ev("333");
+const BLD = ev("333bf");
+const FMC = ev("333fm", "number");
+const MBLD = ev("333mbf", "multi");
+
+const TODAY = 20_000;
+const ctx: MetricContext = { today: TODAY, lastWorldsDay: TODAY - 500 };
+const metric = (key: string) => METRICS.find((m) => m.key === key)!;
+
+function round(day: number, attempts: number[], opts: Partial<Round> = {}): Round {
+  const ok = attempts.filter((a) => a > 0);
+  return {
+    day,
+    roundRank: 0,
+    format: "a",
+    best: ok.length ? Math.min(...ok) : -1,
+    average: 0,
+    attempts,
+    ...opts,
+  };
+}
+
+describe("units", () => {
+  it("formats times like the WCA", () => {
+    expect(formatCentiseconds(987)).toBe("9.87");
+    expect(formatCentiseconds(8653)).toBe("1:26.53");
+    expect(formatCentiseconds(360000 + 6100)).toBe("1:01:01.00");
+  });
+
+  it("decodes new and old style multi-blind", () => {
+    // 41/43 in 59:46 (new style): DD = 99 - 39 = 60, MM = 2
+    const v = 60_0358_602;
+    expect(decodeMulti(600358602)).toEqual({ solved: 41, attempted: 43, seconds: 3586, points: 39 });
+    expect(formatSingle(MBLD, v)).toBe("41/43 59:46");
+    // Old style 1SSAATTTTT: 10/12 in 3600s -> SS = 89
+    expect(decodeMulti(1891203600)).toEqual({ solved: 10, attempted: 12, seconds: 3600, points: 8 });
+  });
+});
+
+describe("windowed PRs", () => {
+  const rounds = [
+    round(TODAY - 1000, [900, 1000, 1100, 1200, 1300], { average: 1100 }),
+    round(TODAY - 400, [950, 1050, 1150, 1250, 1350], { average: 1150 }),
+    round(TODAY - 100, [990, 1090, 1190, 1290, 1390], { average: 1190 }),
+  ];
+  it("all time, since Worlds and last 12 months", () => {
+    expect(metric("prSingle").compute(rounds, E333, ctx)?.display).toBe("9.00");
+    expect(metric("worldsSingle").compute(rounds, E333, ctx)?.display).toBe("9.50");
+    expect(metric("recentSingle").compute(rounds, E333, ctx)?.display).toBe("9.90");
+    expect(metric("recentAverage").compute(rounds, E333, ctx)?.display).toBe("11.90");
+  });
+  it("is null when nothing falls in the window", () => {
+    expect(metric("recentSingle").compute(rounds.slice(0, 2), E333, ctx)).toBeNull();
+  });
+  it("multi-blind has no average columns", () => {
+    expect(metric("prAverage").applies(MBLD)).toBe(false);
+    expect(metric("prSingle").applies(MBLD)).toBe(true);
+  });
+});
+
+describe("rolling 100", () => {
+  const twentyRounds = (make: (i: number) => number[]) =>
+    Array.from({ length: 20 }, (_, i) => round(TODAY - 200 + i, make(i)));
+
+  it("trims 5 each side and treats DNF as worst", () => {
+    // 100 attempts: 95 x 1000, plus 5 DNFs -> trimmed away completely
+    const rounds = twentyRounds((i) => (i < 5 ? [-1, 1000, 1000, 1000, 1000] : [1000, 1000, 1000, 1000, 1000]));
+    const v = metric("rolling100").compute(rounds, E333, ctx)!;
+    expect(v.display).toBe("10.00");
+    expect(v.note).toBe("5 DNF");
+  });
+
+  it("is a DNF (unranked) with more than 5 DNFs", () => {
+    const rounds = twentyRounds((i) => (i < 6 ? [-1, 1000, 1000, 1000, 1000] : [1000, 1000, 1000, 1000, 1000]));
+    expect(metric("rolling100").compute(rounds, E333, ctx)).toBeNull();
+  });
+
+  it("never counts DNS and needs 100 attempts", () => {
+    const rounds = twentyRounds(() => [1000, 1000, 1000, 1000, -2]);
+    expect(metric("rolling100").compute(rounds, E333, ctx)).toBeNull();
+    const more = [...Array.from({ length: 5 }, (_, i) => round(TODAY - 300 + i, [2000, 2000, 2000, 2000, 2000])), ...rounds];
+    // 80 x 10.00 recent + 20 x 20.00 older -> trim 5 best (10.00), 5 worst (20.00)
+    expect(metric("rolling100").compute(more, E333, ctx)!.display).toBe("11.67");
+  });
+
+  it("uses only the most recent 100 attempts", () => {
+    const old = Array.from({ length: 10 }, (_, i) => round(TODAY - 600 + i, [5000, 5000, 5000, 5000, 5000]));
+    const rounds = [...old, ...twentyRounds(() => [1000, 1000, 1000, 1000, 1000])];
+    expect(metric("rolling100").compute(rounds, E333, ctx)!.display).toBe("10.00");
+  });
+
+  it("mean of successes with accuracy for blindfolded", () => {
+    const rounds = Array.from({ length: 34 }, (_, i) => round(TODAY - 300 + i, [i % 2 ? 3000 : -1, 2000, -2]));
+    // last 100 attempts: 67 rounds' worth... 34 rounds x 2 non-DNS = 68 attempts -> not enough
+    expect(metric("rolling100").compute(rounds, BLD, ctx)).toBeNull();
+    const enough = Array.from({ length: 50 }, (_, i) => round(TODAY - 300 + i, [-1, 2000, -2]));
+    const v = metric("rolling100").compute(enough, BLD, ctx)!;
+    expect(v.display).toBe("20.00");
+    expect(v.note).toBe("50% accuracy");
+  });
+
+  it("requires recent activity", () => {
+    const rounds = Array.from({ length: 20 }, (_, i) => round(TODAY - 900 + i, [1000, 1000, 1000, 1000, 1000]));
+    expect(metric("rolling100").compute(rounds, E333, ctx)).toBeNull();
+  });
+});
+
+describe("last 10 rounds", () => {
+  it("averages successful rounds and reports how many counted", () => {
+    const rounds = Array.from({ length: 12 }, (_, i) =>
+      round(TODAY - 100 + i, [1000, 1000, 1000, 1000, 1000], { average: i === 11 ? -1 : 1000 + (i >= 2 ? 0 : 5000) }),
+    );
+    const v = metric("last10").compute(rounds, E333, ctx)!;
+    expect(v.display).toBe("10.00");
+    expect(v.note).toBe("9/10 rounds");
+  });
+
+  it("counts a missed cutoff as a failed round and skips best-of rounds", () => {
+    const rounds = [
+      ...Array.from({ length: 9 }, (_, i) => round(TODAY - 100 + i, [1000, 1000, 1000, 1000, 1000], { average: 1000 })),
+      round(TODAY - 50, [3000, 3000, 0, 0, 0], { average: 0 }), // missed cutoff
+      round(TODAY - 40, [500, 0, 0, 0, 0], { format: "1", average: 0 }), // best-of-1: skipped
+    ];
+    expect(metric("last10").compute(rounds, E333, ctx)!.note).toBe("9/10 rounds");
+    expect(metric("last10").compute(rounds.slice(1), E333, ctx)).toBeNull(); // only 9 counting rounds left
+  });
+
+  it("uses best singles for blindfolded and FMC averages in moves", () => {
+    const bld = Array.from({ length: 10 }, (_, i) => round(TODAY - 100 + i, [i < 4 ? -1 : 2000, -1, -1], { format: "3" }));
+    expect(metric("last10").compute(bld, BLD, ctx)).toMatchObject({ display: "20.00", note: "6/10 rounds" });
+    const fmc = Array.from({ length: 10 }, (_, i) => round(TODAY - 100 + i, [25, 26, 27], { format: "m", average: 2600 }));
+    expect(metric("last10").compute(fmc, FMC, ctx)!.display).toBe("26.00");
+  });
+});
+
+describe("decayed mean", () => {
+  it("weights recent rounds more", () => {
+    const rounds = [
+      round(TODAY - 365, [0], { average: 2000 }), // weight 0.25
+      round(TODAY - 182.5, [0], { average: 1500 }), // weight 0.5
+      round(TODAY, [0], { average: 1000 }), // weight 1
+    ];
+    // (0.25*2000 + 0.5*1500 + 1000) / 1.75 = 1285.71
+    expect(metric("decayed").compute(rounds, E333, ctx)).toMatchObject({ display: "12.86", note: "3 rounds" });
+  });
+  it("needs 3 rounds and one in the last year", () => {
+    const rounds = [round(TODAY - 800, [0], { average: 1000 }), round(TODAY - 700, [0], { average: 1000 }), round(TODAY - 400, [0], { average: 1000 })];
+    expect(metric("decayed").compute(rounds, E333, ctx)).toBeNull();
+    expect(metric("decayed").compute(rounds.slice(1), E333, { ...ctx, today: TODAY - 300 })).toBeNull();
+  });
+  it("ranks multi-blind by points, higher is better", () => {
+    const good = Array.from({ length: 3 }, (_, i) => round(TODAY - i, [600358602], { format: "1", best: 600358602 }));
+    const v = metric("decayed").compute(good, MBLD, ctx)!;
+    expect(v.display).toBe("39.00 pts");
+    expect(v.sort).toBe(-39);
+  });
+});
+
+describe("rankRegions", () => {
+  it("keeps the top N per region, including ties at the cutoff", () => {
+    const entries = { a: [10, 20, 10, 30, 5].map((sort, person) => ({ person, sort })) };
+    const members = rankRegions(entries, (p) => ["world", p % 2 ? "odd" : "even"], 2);
+    expect([...members.get("world")!].sort()).toEqual([0, 2, 4]); // 5, then the 10-10 tie for 2nd
+    expect([...members.get("even")!].sort()).toEqual([0, 2, 4]);
+    expect([...members.get("odd")!].sort()).toEqual([1, 3]);
+  });
+});
