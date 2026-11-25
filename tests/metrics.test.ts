@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { METRICS, type MetricContext, type Round } from "../pipeline/metrics.ts";
+import { DECAY_HALF_LIFE_DAYS, METRICS, type MetricContext, type Round } from "../pipeline/metrics.ts";
 import { rankRegions } from "../pipeline/regions.ts";
 import { decodeMulti, formatCentiseconds, formatSingle, type EventInfo } from "../pipeline/units.ts";
 
@@ -17,6 +17,7 @@ function round(day: number, attempts: number[], opts: Partial<Round> = {}): Roun
   const ok = attempts.filter((a) => a > 0);
   return {
     day,
+    comp: 0,
     roundRank: 0,
     format: "a",
     best: ok.length ? Math.min(...ok) : -1,
@@ -64,50 +65,50 @@ describe("windowed PRs", () => {
   });
 });
 
-describe("rolling 100", () => {
+describe("sustained average", () => {
   const twentyRounds = (make: (i: number) => number[]) =>
     Array.from({ length: 20 }, (_, i) => round(TODAY - 200 + i, make(i)));
 
   it("trims 5 each side and treats DNF as worst", () => {
     // 100 attempts: 95 x 1000, plus 5 DNFs -> trimmed away completely
     const rounds = twentyRounds((i) => (i < 5 ? [-1, 1000, 1000, 1000, 1000] : [1000, 1000, 1000, 1000, 1000]));
-    const v = metric("rolling100").compute(rounds, E333, ctx)!;
+    const v = metric("sustained").compute(rounds, E333, ctx)!;
     expect(v.display).toBe("10.00");
     expect(v.note).toBe("5 DNF");
   });
 
   it("is a DNF (unranked) with more than 5 DNFs", () => {
     const rounds = twentyRounds((i) => (i < 6 ? [-1, 1000, 1000, 1000, 1000] : [1000, 1000, 1000, 1000, 1000]));
-    expect(metric("rolling100").compute(rounds, E333, ctx)).toBeNull();
+    expect(metric("sustained").compute(rounds, E333, ctx)).toBeNull();
   });
 
   it("never counts DNS and needs 100 attempts", () => {
     const rounds = twentyRounds(() => [1000, 1000, 1000, 1000, -2]);
-    expect(metric("rolling100").compute(rounds, E333, ctx)).toBeNull();
+    expect(metric("sustained").compute(rounds, E333, ctx)).toBeNull();
     const more = [...Array.from({ length: 5 }, (_, i) => round(TODAY - 300 + i, [2000, 2000, 2000, 2000, 2000])), ...rounds];
     // 80 x 10.00 recent + 20 x 20.00 older -> trim 5 best (10.00), 5 worst (20.00)
-    expect(metric("rolling100").compute(more, E333, ctx)!.display).toBe("11.67");
+    expect(metric("sustained").compute(more, E333, ctx)!.display).toBe("11.67");
   });
 
   it("uses only the most recent 100 attempts", () => {
     const old = Array.from({ length: 10 }, (_, i) => round(TODAY - 600 + i, [5000, 5000, 5000, 5000, 5000]));
     const rounds = [...old, ...twentyRounds(() => [1000, 1000, 1000, 1000, 1000])];
-    expect(metric("rolling100").compute(rounds, E333, ctx)!.display).toBe("10.00");
+    expect(metric("sustained").compute(rounds, E333, ctx)!.display).toBe("10.00");
   });
 
   it("mean of successes with accuracy for blindfolded", () => {
     const rounds = Array.from({ length: 34 }, (_, i) => round(TODAY - 300 + i, [i % 2 ? 3000 : -1, 2000, -2]));
     // last 100 attempts: 67 rounds' worth... 34 rounds x 2 non-DNS = 68 attempts -> not enough
-    expect(metric("rolling100").compute(rounds, BLD, ctx)).toBeNull();
+    expect(metric("sustained").compute(rounds, BLD, ctx)).toBeNull();
     const enough = Array.from({ length: 50 }, (_, i) => round(TODAY - 300 + i, [-1, 2000, -2]));
-    const v = metric("rolling100").compute(enough, BLD, ctx)!;
+    const v = metric("sustained").compute(enough, BLD, ctx)!;
     expect(v.display).toBe("20.00");
     expect(v.note).toBe("50% accuracy");
   });
 
   it("requires recent activity", () => {
     const rounds = Array.from({ length: 20 }, (_, i) => round(TODAY - 900 + i, [1000, 1000, 1000, 1000, 1000]));
-    expect(metric("rolling100").compute(rounds, E333, ctx)).toBeNull();
+    expect(metric("sustained").compute(rounds, E333, ctx)).toBeNull();
   });
 });
 
@@ -142,8 +143,8 @@ describe("last 10 rounds", () => {
 describe("decayed mean", () => {
   it("weights recent rounds more", () => {
     const rounds = [
-      round(TODAY - 365, [0], { average: 2000 }), // weight 0.25
-      round(TODAY - 182.5, [0], { average: 1500 }), // weight 0.5
+      round(TODAY - 2 * DECAY_HALF_LIFE_DAYS, [0], { average: 2000 }), // weight 0.25
+      round(TODAY - DECAY_HALF_LIFE_DAYS, [0], { average: 1500 }), // weight 0.5
       round(TODAY, [0], { average: 1000 }), // weight 1
     ];
     // (0.25*2000 + 0.5*1500 + 1000) / 1.75 = 1285.71
@@ -169,5 +170,40 @@ describe("rankRegions", () => {
     expect([...members.get("world")!].sort()).toEqual([0, 2, 4]); // 5, then the 10-10 tie for 2nd
     expect([...members.get("even")!].sort()).toEqual([0, 2, 4]);
     expect([...members.get("odd")!].sort()).toEqual([1, 3]);
+  });
+});
+
+describe("quality-of-life changes", () => {
+  it("PR metrics say where and when the result was set (earliest on ties)", () => {
+    const rounds = [
+      round(TODAY - 300, [1000, 1100, 1200, 1300, 1400], { comp: 7, average: 1200 }),
+      round(TODAY - 200, [1000, 1500, 1500, 1500, 1500], { comp: 9, average: 1500 }),
+    ];
+    expect(metric("prSingle").compute(rounds, E333, ctx)!.at).toEqual({ comp: 7, day: TODAY - 300 });
+    expect(metric("prAverage").compute(rounds, E333, ctx)!.at).toEqual({ comp: 7, day: TODAY - 300 });
+    expect(metric("decayed").compute([...rounds, rounds[0]!], E333, ctx)!.at).toBeUndefined();
+  });
+
+  it("last 10 rounds has no note when all 10 counted", () => {
+    const rounds = Array.from({ length: 10 }, (_, i) => round(TODAY - 100 + i, [1000, 1000, 1000, 1000, 1000], { average: 1000 }));
+    expect(metric("last10").compute(rounds, E333, ctx)!.note).toBeUndefined();
+  });
+
+  it("sustained average uses 50 attempts for 6x6/7x7 and trims 3 each side", () => {
+    const E666 = ev("666");
+    // 17 mean-of-3 rounds = 51 attempts (the oldest drops off); the last 50 have 3 DNFs, which are trimmed.
+    const rounds = Array.from({ length: 17 }, (_, i) => round(TODAY - 100 + i, i >= 1 && i < 4 ? [-1, 10000, 10000] : [10000, 10000, 10000], { format: "m" }));
+    const v = metric("sustained").compute(rounds, E666, ctx)!;
+    expect(v.display).toBe("1:40.00");
+    expect(v.note).toBe("3 DNF");
+    rounds[4] = round(TODAY - 96, [-1, 10000, 10000], { format: "m" });
+    expect(metric("sustained").compute(rounds, E666, ctx)).toBeNull(); // 4 DNFs > 3 trimmed
+    // 3x3 still needs 100
+    expect(metric("sustained").compute(rounds, E333, ctx)).toBeNull();
+  });
+
+  it("FMC sustained average needs only 50 attempts", () => {
+    const rounds = Array.from({ length: 25 }, (_, i) => round(TODAY - 100 + i, [26, -1], { format: "2" }));
+    expect(metric("sustained").compute(rounds, FMC, ctx)).toMatchObject({ display: "26.00", note: "50% accuracy" });
   });
 });

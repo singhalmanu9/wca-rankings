@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { EVENT_SHORT, loadMeta, loadRows, rank, type Meta, type Row } from "./data";
+import { EVENT_SHORT, loadMeta, loadRegion, rank, type Cell, type Meta, type RegionFile } from "./data";
+import { Flag } from "./flags";
 
 interface Selection {
   event: string;
@@ -140,79 +141,142 @@ function Controls({ meta, sel, update }: { meta: Meta; sel: Selection; update: (
   );
 }
 
+interface Tip {
+  title: string;
+  detail: string;
+  x: number;
+  y: number;
+}
+
+const DAY_MS = 86_400_000;
+
+function describeWhen(date: string): string {
+  const then = Date.parse(date + "T00:00:00Z");
+  const formatted = new Date(then).toLocaleDateString(undefined, { dateStyle: "medium", timeZone: "UTC" });
+  const now = new Date();
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const days = Math.round((today - then) / DAY_MS);
+  const ago = days <= 0 ? "today" : days === 1 ? "yesterday" : `${days.toLocaleString()} days ago`;
+  return `${formatted} · ${ago}`;
+}
+
 function Rankings({ meta, sel, update }: { meta: Meta; sel: Selection; update: (p: Partial<Selection>) => void }) {
-  const [rows, setRows] = useState<Row[] | null>(null);
+  const [file, setFile] = useState<RegionFile | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tip, setTip] = useState<Tip | null>(null);
 
   useEffect(() => {
     let live = true;
     setError(null);
-    setRows(null);
-    loadRows(sel.event, sel.region)
-      .then((r) => live && setRows(r))
+    setFile(null);
+    setTip(null);
+    loadRegion(sel.event, sel.region)
+      .then((f) => live && setFile(f))
       .catch((e: Error) => live && setError(e.message));
     return () => {
       live = false;
     };
   }, [sel.event, sel.region]);
 
+  // A fixed-position tooltip would drift away from its cell on scroll.
+  useEffect(() => {
+    if (!tip) return;
+    const hide = () => setTip(null);
+    addEventListener("scroll", hide, { capture: true, passive: true });
+    return () => removeEventListener("scroll", hide, { capture: true });
+  }, [tip]);
+
   const ev = meta.events.find((e) => e.id === sel.event)!;
   // The column being ranked by comes first, right next to the name.
   const all = meta.metrics.filter((m) => ev.metrics.includes(m.key));
   const columns = [...all.filter((m) => m.key === sel.metric), ...all.filter((m) => m.key !== sel.metric)];
   const countryName = useMemo(() => new Map(meta.countries.map((c) => [c.key.toUpperCase(), c.name])), [meta]);
-  const ranked = useMemo(() => (rows ? rank(rows, sel.metric, meta.topN) : []), [rows, sel.metric, meta.topN]);
+  const ranked = useMemo(() => (file ? rank(file.rows, sel.metric, meta.topN) : []), [file, sel.metric, meta.topN]);
 
   if (error) return <p class="error">Couldn't load this table: {error}</p>;
-  if (!rows) return <p class="muted">Loading…</p>;
+  if (!file) return <p class="muted">Loading…</p>;
   if (ranked.length === 0) return <p class="muted">Nobody in this region qualifies for this ranking yet.</p>;
 
+  const showTip = (e: Event, cell: Cell) => {
+    if (!cell.c || !cell.t) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setTip({ title: file.comps[cell.c] ?? cell.c, detail: describeWhen(cell.t), x: rect.left + rect.width / 2, y: rect.bottom });
+  };
+
   return (
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th class="rank">#</th>
-            <th class="name">Name</th>
-            <th class="country">Country</th>
-            {columns.map((c) => (
-              <th key={c.key} class={c.key === sel.metric ? "metric sorted" : "metric"} aria-sort={c.key === sel.metric ? "ascending" : undefined}>
-                <button title={c.description} onClick={() => update({ metric: c.key })}>
-                  {c.label}
-                </button>
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {ranked.map(({ rank, row }, i) => (
-            <tr key={row.id}>
-              <td class="rank">{ranked[i - 1]?.rank === rank ? "" : rank}</td>
-              <td class="name">
-                <a href={`https://www.worldcubeassociation.org/persons/${row.id}`} target="_blank" rel="noopener">
-                  {row.name}
-                </a>
-              </td>
-              <td class="country">{countryName.get(row.country) ?? row.country}</td>
-              {columns.map((c) => {
-                const cell = row.m[c.key];
-                return (
-                  <td key={c.key} class={c.key === sel.metric ? "metric sorted" : "metric"}>
-                    {cell ? (
-                      <>
-                        <span class="value">{cell[1]}</span>
-                        {cell[2] && <span class="note">{cell[2]}</span>}
-                      </>
-                    ) : (
-                      <span class="none">–</span>
-                    )}
-                  </td>
-                );
-              })}
+    <>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="rank">#</th>
+              <th class="name">Name</th>
+              {columns.map((c) => (
+                <th
+                  key={c.key}
+                  class={c.key === sel.metric ? "metric sorted" : "metric"}
+                  aria-sort={c.key === sel.metric ? "ascending" : undefined}
+                >
+                  <button title={c.description} onClick={() => update({ metric: c.key })}>
+                    {c.label}
+                  </button>
+                </th>
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {ranked.map(({ rank, row }, i) => (
+              <tr key={row.id}>
+                <td class="rank">{ranked[i - 1]?.rank === rank ? "" : rank}</td>
+                <td class="name">
+                  <Flag iso2={row.country} name={countryName.get(row.country) ?? row.country} />
+                  <a href={`https://www.worldcubeassociation.org/persons/${row.id}`} target="_blank" rel="noopener">
+                    {row.name}
+                  </a>
+                </td>
+                {columns.map((c) => {
+                  const cell = row.m[c.key];
+                  return (
+                    <td key={c.key} class={c.key === sel.metric ? "metric sorted" : "metric"}>
+                      {cell ? (
+                        <>
+                          {cell.c ? (
+                            <span
+                              class="value has-tip"
+                              tabIndex={0}
+                              onMouseEnter={(e) => showTip(e, cell)}
+                              onMouseLeave={() => setTip(null)}
+                              onFocus={(e) => showTip(e, cell)}
+                              onBlur={() => setTip(null)}
+                            >
+                              {cell.d}
+                            </span>
+                          ) : (
+                            <span class="value">{cell.d}</span>
+                          )}
+                          {cell.n && <span class="note">{cell.n}</span>}
+                        </>
+                      ) : (
+                        <span class="none">–</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {tip && (
+        <div
+          class="tip"
+          role="tooltip"
+          style={{ left: `${Math.min(Math.max(tip.x, 130), window.innerWidth - 130)}px`, top: `${tip.y + 6}px` }}
+        >
+          <strong>{tip.title}</strong>
+          <span>{tip.detail}</span>
+        </div>
+      )}
+    </>
   );
 }

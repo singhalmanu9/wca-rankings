@@ -20,6 +20,7 @@
     "vitest": "2.1.8"
   },
   "dependencies": {
+    "flag-icons": "7.6.0",
     "preact": "10.24.3"
   }
 }

@@ -11,14 +11,30 @@ export interface Meta {
   countries: { key: string; name: string; continent: string }[];
 }
 
-/** [sort key (lower is better), display value, optional note] */
-export type Cell = [number, string, string?];
+export interface Cell {
+  /** Sort key, lower is better. */
+  s: number;
+  /** Display value. */
+  d: string;
+  /** Optional note (sample size, accuracy...). */
+  n?: string;
+  /** Competition id where the result was set (PR-style metrics). */
+  c?: string;
+  /** Date of that competition, YYYY-MM-DD. */
+  t?: string;
+}
 
 export interface Row {
   id: string;
   name: string;
   country: string;
   m: Record<string, Cell>;
+}
+
+export interface RegionFile {
+  /** Competition id -> name, for every competition a cell refers to. */
+  comps: Record<string, string>;
+  rows: Row[];
 }
 
 const base = import.meta.env.BASE_URL;
@@ -31,12 +47,12 @@ async function getJson<T>(path: string): Promise<T> {
 
 export const loadMeta = () => getJson<Meta>("meta.json");
 
-const cache = new Map<string, Promise<Row[]>>();
-export function loadRows(event: string, region: string): Promise<Row[]> {
+const cache = new Map<string, Promise<RegionFile>>();
+export function loadRegion(event: string, region: string): Promise<RegionFile> {
   const key = `${event}/${region}`;
   let p = cache.get(key);
   if (!p) {
-    p = getJson<Row[]>(`${key}.json`);
+    p = getJson<RegionFile>(`${key}.json`);
     p.catch(() => cache.delete(key));
     cache.set(key, p);
   }
@@ -50,12 +66,12 @@ export interface Ranked {
 
 /** The top N rows for one metric, with shared ranks for ties. */
 export function rank(rows: Row[], metric: string, topN: number): Ranked[] {
-  const sorted = rows.filter((r) => r.m[metric]).sort((a, b) => a.m[metric]![0] - b.m[metric]![0] || a.name.localeCompare(b.name));
+  const sorted = rows.filter((r) => r.m[metric]).sort((a, b) => a.m[metric]!.s - b.m[metric]!.s || a.name.localeCompare(b.name));
   const out: Ranked[] = [];
   for (let i = 0; i < sorted.length; i++) {
     const row = sorted[i]!;
     const prev = out[i - 1];
-    const r = prev && prev.row.m[metric]![0] === row.m[metric]![0] ? prev.rank : i + 1;
+    const r = prev && prev.row.m[metric]!.s === row.m[metric]!.s ? prev.rank : i + 1;
     if (r > topN) break;
     out.push({ rank: r, row });
   }

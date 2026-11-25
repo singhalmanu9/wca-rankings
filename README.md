@@ -10,12 +10,12 @@ Live at https://singhalmanu9.github.io/wca-rankings/
 
 | Column | What it measures |
 |---|---|
-| PR single / average | All-time bests, as on the official rankings (for reference) |
+| PR single / average | All-time bests, as on the official rankings (for reference). Hover any PR-style value for the competition and how long ago it was |
 | Single / average since Worlds | Bests at competitions starting on or after the latest World Championship |
 | 12-month single / average | Bests at competitions that started in the last 12 months |
-| Decayed mean | Weighted mean of every successful round result, weight halving every 6 months; needs 3 rounds and one in the last year |
-| Last 100 solves | WCA-style trimmed average of the last 100 attempts (5 dropped each side, DNF = worst, >5 DNFs = DNF). FMC and blindfolded: mean of the successes plus accuracy. DNS never counts |
-| Last 10 rounds | Mean of the last 10 round results; DNF rounds and missed cutoffs use a slot but aren't averaged, and the count is shown |
+| Decayed mean | Weighted mean of every successful round result, weight halving every 3 months; needs 3 rounds and one in the last year |
+| Sustained average | Last 100 attempts (50 for 6x6, 7x7, FMC, 4BLD, 5BLD, MBLD): WCA-style trimmed average, 5% dropped each side, DNF = worst, too many DNFs = DNF. FMC and blindfolded: mean of the successes plus accuracy. DNS never counts |
+| Last 10 rounds | Mean of the last 10 round results; DNF rounds and missed cutoffs use a slot but aren't averaged, and then the count is shown |
 
 "Round result" is the round average, except for blindfolded events, where it's
 the round's best single. Best-of rounds of other events are skipped. The

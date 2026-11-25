@@ -56,8 +56,10 @@ async function main() {
   const compIndex = new Map<string, number>();
   const compDay: number[] = [];
   const compName: string[] = [];
+  const compIds: string[] = [];
   await readTsv(table("competitions"), (c, k) => {
     compIndex.set(c[k.id!]!, compDay.length);
+    compIds.push(c[k.id!]!);
     compDay.push(dayOf(Number(c[k.year!]), Number(c[k.month!]), Number(c[k.day!])));
     compName.push(c[k.name!]!);
   });
@@ -91,6 +93,7 @@ async function main() {
   const formatCode = new Map(FORMATS.map((f, i) => [f, i]));
   const rId = new IntColumn(), rPerson = new IntColumn(), rEvent = new IntColumn(), rDay = new IntColumn();
   const rRound = new IntColumn(), rFormat = new IntColumn(), rBest = new IntColumn(), rAvg = new IntColumn();
+  const rComp = new IntColumn();
   let skipped = 0;
   await readTsv(table("results"), (c, k) => {
     const ev = eventIndex.get(c[k.event_id!]!);
@@ -107,6 +110,7 @@ async function main() {
     rPerson.push(p);
     rEvent.push(ev);
     rDay.push(compDay[comp]!);
+    rComp.push(comp);
     rRound.push(rr);
     rFormat.push(fmt);
     rBest.push(Number(c[k.best!]));
@@ -166,6 +170,7 @@ async function main() {
         for (let j = 0; j < MAX_ATTEMPTS; j++) a.push(attempts[row * MAX_ATTEMPTS + j]!);
         rounds.push({
           day: dy[row]!,
+          comp: rComp.get(row),
           roundRank: rd[row]!,
           format: FORMATS[rFormat.get(row)]!,
           best: rBest.get(row),
@@ -196,18 +201,25 @@ async function main() {
     const regions: string[] = [];
     mkdirSync(join(OUT_DIR, event.id), { recursive: true });
     for (const [region, people] of members) {
+      const comps: Record<string, string> = {};
+      const cell = (v: MetricValue) => {
+        const c: { s: number; d: string; n?: string; c?: string; t?: string } = { s: round4(v.sort), d: v.display };
+        if (v.note) c.n = v.note;
+        if (v.at) {
+          const id = compIds[v.at.comp]!;
+          comps[id] = compName[v.at.comp]!;
+          c.c = id;
+          c.t = isoDay(v.at.day);
+        }
+        return c;
+      };
       const rows = [...people].map((p) => ({
         id: personId[p],
         name: personName[p],
         country: countries.get(personCountry[p]!)?.iso2 ?? "",
-        m: Object.fromEntries(
-          Object.entries(values.get(p) ?? {}).map(([key, v]) => [
-            key,
-            v.note ? [round4(v.sort), v.display, v.note] : [round4(v.sort), v.display],
-          ]),
-        ),
+        m: Object.fromEntries(Object.entries(values.get(p) ?? {}).map(([key, v]) => [key, cell(v)])),
       }));
-      writeFileSync(join(OUT_DIR, event.id, `${region}.json`), JSON.stringify(rows));
+      writeFileSync(join(OUT_DIR, event.id, `${region}.json`), JSON.stringify({ comps, rows }));
       regions.push(region);
       usedRegions.add(region);
     }
@@ -219,7 +231,7 @@ async function main() {
     exportDate: exportDate.toISOString(),
     builtAt: new Date().toISOString(),
     topN: TOP_N,
-    lastWorlds: { id: worlds.id, name: worlds.name, date: new Date(worlds.day * 86_400_000).toISOString().slice(0, 10) },
+    lastWorlds: { id: worlds.id, name: worlds.name, date: isoDay(worlds.day) },
     metrics: METRICS.map(({ key, label, description }) => ({ key, label, description })),
     events: eventMeta,
     continents: [...continents]
@@ -235,6 +247,7 @@ async function main() {
 }
 
 const round4 = (x: number) => Math.round(x * 10_000) / 10_000;
+const isoDay = (day: number) => new Date(day * 86_400_000).toISOString().slice(0, 10);
 
 main().catch((err) => {
   console.error(err);

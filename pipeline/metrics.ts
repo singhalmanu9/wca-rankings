@@ -20,6 +20,8 @@ import {
 export interface Round {
   /** Competition start date, as days since 1970-01-01 (UTC). */
   day: number;
+  /** Index of the competition, resolved to an id/name by the build. */
+  comp: number;
   /** Order of the round within its competition (round_types.rank). */
   roundRank: number;
   /** formats.id: "1", "2", "3", "5", "a", "m", "h". */
@@ -43,6 +45,8 @@ export interface MetricValue {
   display: string;
   /** Short extra detail shown next to the value (sample size, accuracy...). */
   note?: string;
+  /** Where and when the result was set, for single-result metrics like PRs. */
+  at?: { comp: number; day: number };
 }
 
 export interface Metric {
@@ -58,11 +62,15 @@ export interface Metric {
 // ---- Tunable parameters ----------------------------------------------------
 
 export const RECENT_WINDOW_DAYS = 365;
-export const DECAY_HALF_LIFE_DAYS = 182.5;
+export const DECAY_HALF_LIFE_DAYS = 365.25 / 4;
 export const DECAY_MIN_ROUNDS = 3;
 export const DECAY_REQUIRE_WITHIN_DAYS = 365;
-export const ROLLING_ATTEMPTS = 100;
-export const ROLLING_TRIM = 5;
+/** Sustained average: last 100 attempts, or 50 for events with few attempts per competitor. */
+export const SUSTAINED_ATTEMPTS = 100;
+export const SUSTAINED_ATTEMPTS_SHORT = 50;
+export const SUSTAINED_SHORT_EVENTS = new Set(["333fm", "444bf", "555bf", "333mbf", "666", "777"]);
+/** Fraction dropped from each end of the trimmed sustained average (rounded up). */
+export const SUSTAINED_TRIM_FRACTION = 0.05;
 export const LAST_ROUNDS = 10;
 /** Rolling metrics only rank people who competed in the event this recently. */
 export const ACTIVE_WITHIN_DAYS = 730;
@@ -72,19 +80,27 @@ export const ACTIVE_WITHIN_DAYS = 730;
 const hasAverage = (ev: EventInfo) => ev.format !== "multi";
 const AVERAGE_FORMATS = new Set(["a", "m"]);
 
+/** The earliest round with the lowest positive value of `pick`, on or after `fromDay`. */
+function bestRound(rounds: readonly Round[], fromDay: number, pick: (r: Round) => number): Round | null {
+  let best: Round | null = null;
+  for (const r of rounds) {
+    const v = pick(r);
+    if (r.day >= fromDay && v > 0 && (!best || v < pick(best))) best = r;
+  }
+  return best;
+}
+
 function bestSingle(rounds: readonly Round[], ev: EventInfo, fromDay: number): MetricValue | null {
-  let best = Infinity;
-  for (const r of rounds) if (r.day >= fromDay && r.best > 0 && r.best < best) best = r.best;
-  if (best === Infinity) return null;
+  const r = bestRound(rounds, fromDay, (x) => x.best);
+  if (!r) return null;
   // Raw values sort correctly for every format, including multi-blind encoding.
-  return { sort: best, display: formatSingle(ev, best) };
+  return { sort: r.best, display: formatSingle(ev, r.best), at: { comp: r.comp, day: r.day } };
 }
 
 function bestAverage(rounds: readonly Round[], ev: EventInfo, fromDay: number): MetricValue | null {
-  let best = Infinity;
-  for (const r of rounds) if (r.day >= fromDay && r.average > 0 && r.average < best) best = r.average;
-  if (best === Infinity) return null;
-  return { sort: averageNatural(ev, best), display: formatAverage(ev, best) };
+  const r = bestRound(rounds, fromDay, (x) => x.average);
+  if (!r) return null;
+  return { sort: averageNatural(ev, r.average), display: formatAverage(ev, r.average), at: { comp: r.comp, day: r.day } };
 }
 
 export type RoundOutcome = { kind: "success"; natural: number; day: number } | { kind: "fail"; day: number };
@@ -162,7 +178,7 @@ export const METRICS: Metric[] = [
     key: "decayed",
     label: "Decayed mean",
     description:
-      "Weighted mean of every successful round result (the round average; the best single for blindfolded events), where a result's weight halves every 6 months. " +
+      "Weighted mean of every successful round result (the round average; the best single for blindfolded events), where a result's weight halves every 3 months. " +
       "DNF rounds and missed cutoffs are left out. Requires at least 3 such rounds and one in the last 12 months.",
     applies: () => true,
     compute(rounds, ev, ctx) {
@@ -185,24 +201,26 @@ export const METRICS: Metric[] = [
     },
   },
   {
-    key: "rolling100",
-    label: "Last 100 solves",
+    key: "sustained",
+    label: "Sustained average",
     description:
-      "The last 100 official attempts (DNS never counts). For most events this is a WCA-style trimmed average: the best and worst 5 are dropped, DNFs count as worst, " +
-      "and more than 5 DNFs makes it a DNF. For FMC and blindfolded events it's the mean of the successes among those 100, with the accuracy shown. " +
-      "Requires 100 attempts and a result in the last 2 years.",
+      "Speed over a long stretch: the last 100 official attempts (last 50 for 6x6, 7x7, FMC, 4BLD, 5BLD and Multi-Blind), never counting DNS. " +
+      "For most events this is a WCA-style trimmed average: the best and worst 5% are dropped, DNFs count as worst, and more DNFs than can be trimmed makes it a DNF. " +
+      "For FMC and blindfolded events it's the mean of the successes among those attempts, with the accuracy shown. " +
+      "Requires the full number of attempts and a result in the last 2 years.",
     applies: () => true,
     compute(rounds, ev, ctx) {
       if (latestDay(rounds) < ctx.today - ACTIVE_WITHIN_DAYS) return null;
+      const want = SUSTAINED_SHORT_EVENTS.has(ev.id) ? SUSTAINED_ATTEMPTS_SHORT : SUSTAINED_ATTEMPTS;
       const attempts: number[] = [];
-      for (let i = rounds.length - 1; i >= 0 && attempts.length < ROLLING_ATTEMPTS; i--) {
+      for (let i = rounds.length - 1; i >= 0 && attempts.length < want; i--) {
         const a = rounds[i]!.attempts;
-        for (let j = a.length - 1; j >= 0 && attempts.length < ROLLING_ATTEMPTS; j--) {
+        for (let j = a.length - 1; j >= 0 && attempts.length < want; j--) {
           const v = a[j]!;
           if (v > 0 || v === DNF) attempts.push(v);
         }
       }
-      if (attempts.length < ROLLING_ATTEMPTS) return null;
+      if (attempts.length < want) return null;
 
       if (HIGH_DNF_EVENTS.has(ev.id)) {
         const ok = attempts.filter((v) => v > 0).map((v) => singleNatural(ev, v));
@@ -215,12 +233,13 @@ export const METRICS: Metric[] = [
         };
       }
 
+      const trim = Math.ceil(want * SUSTAINED_TRIM_FRACTION);
       const dnfs = attempts.filter((v) => v === DNF).length;
-      if (dnfs > ROLLING_TRIM) return null; // a DNF average isn't ranked
+      if (dnfs > trim) return null; // a DNF average isn't ranked
       const sorted = attempts
         .map((v) => (v === DNF ? Infinity : singleNatural(ev, v)))
         .sort((a, b) => a - b)
-        .slice(ROLLING_TRIM, ROLLING_ATTEMPTS - ROLLING_TRIM);
+        .slice(trim, want - trim);
       const mean = sorted.reduce((s, v) => s + v, 0) / sorted.length;
       return { sort: naturalSortKey(ev, mean), display: formatNatural(ev, mean), note: dnfs ? `${dnfs} DNF` : undefined };
     },
@@ -230,7 +249,7 @@ export const METRICS: Metric[] = [
     label: "Last 10 rounds",
     description:
       "Plain mean of the results of the last 10 rounds (the round average; the best single for blindfolded events; best-of rounds of other events are skipped). " +
-      "DNF rounds and missed cutoffs still use up one of the 10 but are left out of the mean; the note shows how many rounds counted. " +
+      "DNF rounds and missed cutoffs still use up one of the 10 but are left out of the mean; when that happens, the note shows how many rounds counted. " +
       "Requires 10 rounds and a result in the last 2 years.",
     applies: () => true,
     compute(rounds, ev, ctx) {
@@ -244,7 +263,7 @@ export const METRICS: Metric[] = [
       const ok = outcomes.flatMap((o) => (o.kind === "success" ? [o.natural] : []));
       if (ok.length === 0) return null;
       const mean = ok.reduce((s, v) => s + v, 0) / ok.length;
-      return { sort: naturalSortKey(ev, mean), display: formatNatural(ev, mean), note: `${ok.length}/${LAST_ROUNDS} rounds` };
+      return { sort: naturalSortKey(ev, mean), display: formatNatural(ev, mean), note: ok.length < LAST_ROUNDS ? `${ok.length}/${LAST_ROUNDS} rounds` : undefined };
     },
   },
 ];
