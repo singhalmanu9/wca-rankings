@@ -43,9 +43,10 @@ Actions ([deploy.yml](.github/workflows/deploy.yml)), free for public repos:
    warns if that's more than 3 days old.
 
 Pushes to `main` always rebuild. GitHub switches off scheduled workflows in
-public repos after 60 days without activity; the workflow tries to keep itself
-enabled, and if it ever stops, a push or "Enable workflow" in the Actions tab
-restarts it.
+public repos after 60 days without activity, so when the last commit is more
+than 50 days old the check job pushes an empty "[skip ci]" commit (about 7 a
+year, only while the repo is otherwise idle). A failed run emails the repo
+owner, and the page shows a stale-data warning after 3 days.
 
 ### Timings (local, 7.1M results / 32.8M attempts)
 

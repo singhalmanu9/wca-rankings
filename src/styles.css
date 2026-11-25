@@ -133,14 +133,71 @@ select {
   min-width: 200px;
 }
 
-.description {
-  margin: 12px 0 0;
-  padding: 10px 14px;
-  background: var(--accent-soft);
+.row {
+  align-items: flex-end;
+}
+
+.info {
+  position: relative;
+}
+
+.info-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-2);
+  background: none;
+  border: none;
+  padding: 7px 4px;
+  cursor: pointer;
+}
+
+.info-btn:hover,
+.info-btn.open {
+  color: var(--accent);
+}
+
+.info-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  font: italic 600 11px/1 Georgia, serif;
+}
+
+.popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  width: min(380px, calc(100vw - 24px));
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
-  border-radius: 0 var(--radius) var(--radius) 0;
-  max-width: 90ch;
-  font-size: 14px;
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.popover.right {
+  left: auto;
+  right: 0;
+}
+
+.popover strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.popover p {
+  margin: 0;
+  color: var(--text-2);
 }
 
 /* ---- Table ---- */
@@ -348,9 +405,13 @@ footer {
     min-width: 0;
     width: 100%;
   }
-  .description {
-    margin-top: 8px;
-    padding: 6px 10px;
+  .info-text {
+    display: none;
+  }
+  .info-btn {
+    padding: 5px 2px;
+  }
+  .popover {
     font-size: 12px;
   }
   .controls {

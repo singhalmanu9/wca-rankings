@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { EVENT_SHORT, loadMeta, loadRegion, rank, type Cell, type Meta, type RegionFile } from "./data";
 import { Flag } from "./flags";
 
@@ -136,8 +136,8 @@ function Controls({ meta, sel, update }: { meta: Meta; sel: Selection; update: (
             ))}
           </select>
         </label>
+        <MetricInfo metric={meta.metrics.find((m) => m.key === sel.metric)!} />
       </div>
-      <p class="description">{meta.metrics.find((m) => m.key === sel.metric)?.description}</p>
     </section>
   );
 }
@@ -301,5 +301,78 @@ function Freshness({ meta }: { meta: Meta }) {
       Results as of <strong>{when}</strong> ({ago}) · from the WCA's nightly export
       {stale && " · this is older than usual, so the nightly update may have stopped"}
     </p>
+  );
+}
+
+/**
+ * "What does this mean?" button: hovering, focusing or tapping it shows the
+ * current ranking's definition in a popover.
+ */
+function MetricInfo({ metric }: { metric: { key: string; label: string; description: string } }) {
+  const [hover, setHover] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const [alignRight, setAlignRight] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Open toward whichever side has room for the popover (max 380px wide).
+  const place = () => {
+    const r = ref.current?.getBoundingClientRect();
+    if (r) setAlignRight(r.left + 392 > window.innerWidth);
+  };
+
+  // A tap pins it open (touch has no hover); tapping anywhere else closes it.
+  useEffect(() => {
+    if (!pinned) return;
+    const close = (e: Event) => {
+      if (!ref.current?.contains(e.target as Node)) setPinned(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPinned(false);
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [pinned]);
+
+  useEffect(() => setPinned(false), [metric.key]);
+
+  const open = hover || pinned;
+  return (
+    <div
+      class="info"
+      ref={ref}
+      onMouseEnter={() => {
+        place();
+        setHover(true);
+      }}
+      onMouseLeave={() => setHover(false)}
+    >
+      <button
+        type="button"
+        class={open ? "info-btn open" : "info-btn"}
+        aria-expanded={open}
+        aria-controls="metric-info"
+        aria-label={`What does "${metric.label}" mean?`}
+        onClick={() => {
+          place();
+          setPinned((p) => !p);
+        }}
+        onFocus={() => {
+          place();
+          setHover(true);
+        }}
+        onBlur={() => setHover(false)}
+      >
+        <span class="info-icon" aria-hidden="true">i</span>
+        <span class="info-text">What does this mean?</span>
+      </button>
+      {open && (
+        <div class={alignRight ? "popover right" : "popover"} id="metric-info" role="tooltip">
+          <strong>{metric.label}</strong>
+          <p>{metric.description}</p>
+        </div>
+      )}
+    </div>
   );
 }
