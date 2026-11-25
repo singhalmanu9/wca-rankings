@@ -58,6 +58,7 @@ export function App() {
   return (
     <Shell meta={meta}>
       <Controls meta={meta} sel={sel} update={update} />
+      <Freshness meta={meta} />
       <Rankings meta={meta} sel={sel} update={update} />
     </Shell>
   );
@@ -83,7 +84,7 @@ function Shell({ meta, children }: { meta?: Meta; children: preact.ComponentChil
             <a href="https://worldcubeassociation.org/results" target="_blank" rel="noopener">
               worldcubeassociation.org/results
             </a>{" "}
-            as of {exportDate}. "Since Worlds" means since {meta.lastWorlds.name} ({meta.lastWorlds.date}).
+            as of {exportDate}, and refreshed nightly from the WCA export. "Since Worlds" means since {meta.lastWorlds.name} ({meta.lastWorlds.date}).
           </p>
         </footer>
       )}
@@ -278,5 +279,27 @@ function Rankings({ meta, sel, update }: { meta: Meta; sel: Selection; update: (
         </div>
       )}
     </>
+  );
+}
+
+/** Data older than this means the nightly update has probably stopped. */
+const STALE_AFTER_DAYS = 3;
+
+function Freshness({ meta }: { meta: Meta }) {
+  const exported = new Date(meta.exportDate);
+  const ageDays = (Date.now() - exported.getTime()) / DAY_MS;
+  const when = exported.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  const ago =
+    ageDays < 1 / 24
+      ? "just now"
+      : ageDays < 1
+        ? `${Math.round(ageDays * 24)} h ago`
+        : `${Math.floor(ageDays)} day${Math.floor(ageDays) === 1 ? "" : "s"} ago`;
+  const stale = ageDays > STALE_AFTER_DAYS;
+  return (
+    <p class={stale ? "freshness stale" : "freshness"} title={`Rankings computed ${new Date(meta.builtAt).toLocaleString()}`}>
+      Results as of <strong>{when}</strong> ({ago}) · from the WCA's nightly export
+      {stale && " · this is older than usual, so the nightly update may have stopped"}
+    </p>
   );
 }

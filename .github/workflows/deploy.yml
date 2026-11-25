@@ -1,24 +1,66 @@
 name: Build rankings and deploy to GitHub Pages
 
+# The WCA publishes a new results export every night (around 00:30 UTC).
+# This runs twice a day; a run first checks whether the export is newer than
+# what's live and skips the build if not, so the second run is a cheap retry
+# for the nights the export is late.
+
 on:
   push:
     branches: [main]
   schedule:
-    # Daily, after the WCA's nightly export (published around 00:30 UTC).
-    - cron: "15 3 * * *"
+    - cron: "15 3,15 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
   pages: write
   id-token: write
+  actions: write # only for the keepalive step below
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.compare.outputs.build }}
+    steps:
+      - id: compare
+        name: Is there a newer WCA export than the live site's?
+        env:
+          EVENT: ${{ github.event_name }}
+          SITE: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          latest=$(curl -fsSL https://www.worldcubeassociation.org/api/v0/export/public | jq -r .export_date)
+          live=$(curl -fsSL "$SITE/data/meta.json" | jq -r .exportDate || echo "")
+          echo "latest export: $latest"
+          echo "live site:     ${live:-none}"
+          if [ "$EVENT" != "schedule" ] || [ -z "$live" ] || [ "$(date -d "$latest" +%s)" -gt "$(date -d "$live" +%s)" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Live site already has this export; skipping."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Scheduled workflows in public repos are switched off after 60 days
+      # without repository activity. Re-enabling the workflow through the API
+      # every run is a commonly used way to keep it alive. If it ever does
+      # get switched off, any push to main (or "Enable workflow" in the
+      # Actions tab) turns it back on, and the site shows a stale-data notice.
+      - name: Keepalive
+        if: github.event_name == 'schedule'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/deploy.yml/enable"
+
   build:
+    needs: check
+    if: needs.check.outputs.build == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,9 +76,11 @@ jobs:
           set -euo pipefail
           url=$(curl -fsSL https://www.worldcubeassociation.org/api/v0/export/public | jq -r .tsv_url)
           mkdir -p .cache
-          curl -fsSL -o .cache/export.zip "$url"
-          unzip -q -o .cache/export.zip -d .cache/tsv
-          rm .cache/export.zip .cache/tsv/WCA_export_scrambles.tsv
+          time curl -fsSL -o .cache/export.zip "$url"
+          # Skip the tables the pipeline doesn't read (~400 MB unzipped).
+          time unzip -q -o .cache/export.zip -d .cache/tsv \
+            -x WCA_export_scrambles.tsv WCA_export_ranks_single.tsv WCA_export_ranks_average.tsv
+          rm .cache/export.zip
           cat .cache/tsv/metadata.json
 
       - run: npm run data

@@ -7,7 +7,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { METRICS, type MetricContext, type MetricValue, type Round } from "./metrics.ts";
-import { IntColumn, readTsv } from "./tsv.ts";
+import { IntColumn, readTsv, scanTsv } from "./tsv.ts";
 import type { EventFormat, EventInfo } from "./units.ts";
 import { regionKeyForContinent, rankRegions, type RankedEntry } from "./regions.ts";
 
@@ -95,27 +95,32 @@ async function main() {
   const rRound = new IntColumn(), rFormat = new IntColumn(), rBest = new IntColumn(), rAvg = new IntColumn();
   const rComp = new IntColumn();
   let skipped = 0;
-  await readTsv(table("results"), (c, k) => {
-    const ev = eventIndex.get(c[k.event_id!]!);
+  // Field order for scanTsv: 0 id, 1 best, 2 average, 3 competition, 4 round type, 5 event, 6 person, 7 format
+  await scanTsv(
+    table("results"),
+    ["id", "best", "average", "competition_id", "round_type_id", "event_id", "person_id", "format_id"],
+    (r) => {
+    const ev = r.lookup(5, eventIndex);
     if (ev === undefined) return;
-    const p = personIndex.get(c[k.person_id!]!);
-    const comp = compIndex.get(c[k.competition_id!]!);
-    const fmt = formatCode.get(c[k.format_id!]!);
-    const rr = roundRank.get(c[k.round_type_id!]!);
+    const p = personIndex.get(r.str(6));
+    const comp = r.lookup(3, compIndex);
+    const fmt = r.lookup(7, formatCode);
+    const rr = r.lookup(4, roundRank);
     if (p === undefined || comp === undefined || fmt === undefined || rr === undefined) {
       skipped++;
       return;
     }
-    rId.push(Number(c[k.id!]));
+    rId.push(r.int(0));
     rPerson.push(p);
     rEvent.push(ev);
     rDay.push(compDay[comp]!);
     rComp.push(comp);
     rRound.push(rr);
     rFormat.push(fmt);
-    rBest.push(Number(c[k.best!]));
-    rAvg.push(Number(c[k.average!]));
-  });
+    rBest.push(r.int(1));
+    rAvg.push(r.int(2));
+    },
+  );
   const n = rId.length;
   log(`${n} results loaded (${skipped} skipped with unknown references)`);
 
@@ -126,31 +131,32 @@ async function main() {
 
   const MAX_ATTEMPTS = 5;
   const attempts = new Int32Array(n * MAX_ATTEMPTS);
-  await readTsv(table("result_attempts"), (c, k) => {
-    const id = Number(c[k.result_id!]);
-    const num = Number(c[k.attempt_number!]);
+  await scanTsv(table("result_attempts"), ["value", "attempt_number", "result_id"], (r) => {
+    const id = r.int(2);
+    const num = r.int(1);
     const row = id <= maxId ? rowOfId[id]! : -1;
     if (row < 0 || num < 1 || num > MAX_ATTEMPTS) return;
-    attempts[row * MAX_ATTEMPTS + num - 1] = Number(c[k.value!]);
+    attempts[row * MAX_ATTEMPTS + num - 1] = r.int(0);
   });
   log("attempts loaded");
 
   // ---- Group by event, person, then chronologically ----
-  const order = new Uint32Array(n);
-  for (let i = 0; i < n; i++) order[i] = i;
   const ev = rEvent.data, pe = rPerson.data, dy = rDay.data, rd = rRound.data;
-  order.sort((a, b) => ev[a]! - ev[b]! || pe[a]! - pe[b]! || dy[a]! - dy[b]! || rd[a]! - rd[b]!);
+  const order = groupChronologically(n, events.length, personId.length, ev, pe, dy, rd);
   log("sorted");
 
   const ctx: MetricContext = { today, lastWorldsDay: worlds.day };
   rmSync(OUT_DIR, { recursive: true, force: true });
   mkdirSync(OUT_DIR, { recursive: true });
 
-  const personRegions = (p: number): string[] => {
-    const country = countries.get(personCountry[p]!);
-    if (!country) return ["world"];
-    return ["world", regionKeyForContinent(country.continent), country.iso2.toLowerCase()];
-  };
+  // Region keys per person, built once (looked up for every ranked entry).
+  const regionsByCountry = new Map<string, string[]>();
+  for (const [id, c] of countries) {
+    regionsByCountry.set(id, ["world", regionKeyForContinent(c.continent), c.iso2.toLowerCase()]);
+  }
+  const worldOnly = ["world"];
+  const personRegionList = personCountry.map((c) => regionsByCountry.get(c) ?? worldOnly);
+  const personRegions = (p: number): string[] => personRegionList[p]!;
 
   const eventMeta: { id: string; name: string; metrics: string[]; regions: string[] }[] = [];
   const usedRegions = new Set<string>();
@@ -247,6 +253,43 @@ async function main() {
 }
 
 const round4 = (x: number) => Math.round(x * 10_000) / 10_000;
+
+/**
+ * Row order grouped by (event, person), chronological within each group.
+ * A counting sort on the (event, person) bucket is linear; each bucket is a
+ * single competitor's history in one event, small enough to insertion-sort.
+ */
+function groupChronologically(
+  n: number,
+  eventCount: number,
+  personCount: number,
+  ev: Int32Array,
+  pe: Int32Array,
+  dy: Int32Array,
+  rd: Int32Array,
+): Uint32Array {
+  const buckets = eventCount * personCount;
+  const start = new Int32Array(buckets + 1);
+  for (let i = 0; i < n; i++) start[ev[i]! * personCount + pe[i]! + 1]!++;
+  for (let b = 0; b < buckets; b++) start[b + 1]! += start[b]!;
+  const fill = start.slice(0, buckets);
+  const order = new Uint32Array(n);
+  for (let i = 0; i < n; i++) order[fill[ev[i]! * personCount + pe[i]!]!++] = i;
+  const before = (a: number, b: number) => dy[a]! - dy[b]! || rd[a]! - rd[b]!;
+  for (let b = 0; b < buckets; b++) {
+    const lo = start[b]!, hi = start[b + 1]!;
+    for (let i = lo + 1; i < hi; i++) {
+      const x = order[i]!;
+      let j = i - 1;
+      while (j >= lo && before(order[j]!, x) > 0) {
+        order[j + 1] = order[j]!;
+        j--;
+      }
+      order[j + 1] = x;
+    }
+  }
+  return order;
+}
 const isoDay = (day: number) => new Date(day * 86_400_000).toISOString().slice(0, 10);
 
 main().catch((err) => {

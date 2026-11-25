@@ -27,11 +27,41 @@ pick it up automatically.
 
 ## How it works
 
-A GitHub Action runs daily: it downloads the official
-[WCA results export](https://www.worldcubeassociation.org/export/results)
-(TSV, format v2), runs `pipeline/build.ts` to compute every metric for every
-competitor and event, and writes the top 100 per region as small JSON files
-(`public/data/<event>/<region>.json`). The Preact site just loads those.
+Everything is precomputed; the page never calculates rankings itself, it just
+loads small JSON files (`public/data/<event>/<region>.json`, the top 100 per
+region for every metric).
+
+GitHub Pages only serves static files, so the nightly job runs in GitHub
+Actions ([deploy.yml](.github/workflows/deploy.yml)), free for public repos:
+
+1. **Check** (twice a day, 03:15 and 15:15 UTC): compare the WCA export's
+   `export_date` with the live site's `meta.json`, and stop if nothing is new.
+   The WCA publishes a new export nightly around 00:30 UTC.
+2. **Build**: download the [WCA results export](https://www.worldcubeassociation.org/export/results)
+   (TSV, format v2), run `pipeline/build.ts`, build the site.
+3. **Deploy** to Pages. The page shows "Results as of ..." above the table and
+   warns if that's more than 3 days old.
+
+Pushes to `main` always rebuild. GitHub switches off scheduled workflows in
+public repos after 60 days without activity; the workflow tries to keep itself
+enabled, and if it ever stops, a push or "Enable workflow" in the Actions tab
+restarts it.
+
+### Timings (local, 7.1M results / 32.8M attempts)
+
+| Step | Time |
+|---|---|
+| Download export (389 MB) | ~6 s |
+| Unzip the tables we use | ~8 s |
+| Load small tables | 0.7 s |
+| Load results | 7 s |
+| Load attempts | 3 s |
+| Group by event and competitor | 0.4 s |
+| Compute metrics, rank regions, write ~2,300 files | 10 s |
+
+The big tables are read by a byte-level scanner (`scanTsv`) instead of
+line splitting, and rows are grouped with a counting sort; together those took
+the pipeline from ~41 s to ~21 s with identical output.
 
 ## Local development
 
@@ -39,8 +69,8 @@ competitor and event, and writes the top 100 per region as small JSON files
 npm install
 # Download and unzip the export into .cache/tsv (~390 MB zip)
 curl -L -o .cache/export.zip https://www.worldcubeassociation.org/export/results/v2/tsv
-unzip -o .cache/export.zip -d .cache/tsv
-npm run data   # ~40 s, writes public/data
+unzip -o .cache/export.zip -d .cache/tsv -x WCA_export_scrambles.tsv
+npm run data   # ~20 s, writes public/data
 npm run dev
 npm test
 ```
