@@ -72,6 +72,8 @@ export const SUSTAINED_SHORT_EVENTS = new Set(["333fm", "444bf", "555bf", "333mb
 /** Fraction dropped from each end of the trimmed sustained average (rounded up). */
 export const SUSTAINED_TRIM_FRACTION = 0.05;
 export const LAST_ROUNDS = 10;
+/** Window length of Peak Mo5R since Worlds. */
+export const MO5R_ROUNDS = 5;
 /** Rolling metrics only rank people who competed in the event this recently. */
 export const ACTIVE_WITHIN_DAYS = 730;
 
@@ -159,6 +161,34 @@ export const METRICS: Metric[] = [
       "Best average at competitions starting on or after the most recent WCA World Championship (that championship included).",
     applies: hasAverage,
     compute: (rounds, ev, ctx) => bestAverage(rounds, ev, ctx.lastWorldsDay),
+  },
+  {
+    key: "peakMo5r",
+    label: "Peak Mo5R since Worlds",
+    description:
+      "Best mean of 5 consecutive rounds since the most recent World Championship (the round average; the best single for blindfolded events; best-of rounds of other events are skipped). " +
+      "A DNF round or missed cutoff makes every window it's in a DNF. Hover the value for the competition where the best window ended.",
+    applies: () => true,
+    compute(rounds, ev, ctx) {
+      const window: { natural: number | null; r: Round }[] = [];
+      let best: { mean: number; end: Round } | null = null;
+      for (const r of rounds) {
+        if (r.day < ctx.lastWorldsDay) continue;
+        const o = roundOutcome(r, ev);
+        if (!o) continue;
+        window.push({ natural: o.kind === "success" ? o.natural : null, r });
+        if (window.length > MO5R_ROUNDS) window.shift();
+        if (window.length < MO5R_ROUNDS || window.some((w) => w.natural === null)) continue;
+        const mean = window.reduce((s, w) => s + w.natural!, 0) / MO5R_ROUNDS;
+        if (!best || mean < best.mean) best = { mean, end: r };
+      }
+      if (!best) return null;
+      return {
+        sort: naturalSortKey(ev, best.mean),
+        display: formatNatural(ev, best.mean),
+        at: { comp: best.end.comp, day: best.end.day },
+      };
+    },
   },
   {
     key: "recentSingle",

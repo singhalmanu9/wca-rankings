@@ -12,6 +12,7 @@ Live at https://singhalmanu9.github.io/wca-rankings/
 |---|---|
 | PR single / average | All-time bests, as on the official rankings (for reference). Hover any PR-style value for the competition and how long ago it was |
 | Single / average since Worlds | Bests at competitions starting on or after the latest World Championship |
+| Peak Mo5R since Worlds | Best mean of 5 consecutive round results since the latest World Championship; a DNF round makes the window DNF |
 | 12-month peak single / average | Bests at competitions that started in the last 12 months |
 | XP weighted mean | Exponentially weighted mean of every successful round result, weight halving every 3 months; needs 3 rounds and one in the last year |
 | Sustained average | Last 100 attempts (50 for 6x6, 7x7, FMC, 4BLD, 5BLD, MBLD): WCA-style trimmed average, 5% dropped each side, DNF = worst, too many DNFs = DNF. FMC and blindfolded: mean of the successes plus accuracy. DNS never counts |

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { EVENT_SHORT, loadMeta, loadRegion, rank, type Cell, type Meta, type RegionFile } from "./data";
 import { Flag } from "./flags";
+import { GraphicDialog, type GraphicData } from "./graphic";
 
 interface Selection {
   event: string;
@@ -60,7 +61,10 @@ export function App() {
   return (
     <Shell meta={meta}>
       <Controls meta={meta} sel={sel} update={update} />
-      <Freshness meta={meta} />
+      <div class="table-bar">
+        <Freshness meta={meta} />
+        <GraphicButton meta={meta} sel={sel} />
+      </div>
       <Rankings meta={meta} sel={sel} update={update} />
     </Shell>
   );
@@ -410,5 +414,36 @@ function CopyLink({ sel }: { sel: Selection }) {
     <button type="button" class="info-btn copy-btn" onClick={copy}>
       {copied ? "Link copied" : "Copy link"}
     </button>
+  );
+}
+
+/** Opens the "top 10 as a PNG" preview for the current view. */
+function GraphicButton({ meta, sel }: { meta: Meta; sel: Selection }) {
+  const [data, setData] = useState<GraphicData | null>(null);
+  const open = async () => {
+    const file = await loadRegion(sel.event, sel.region);
+    const rows = rank(file.rows, sel.metric, meta.topN).slice(0, 10);
+    if (rows.length === 0) return;
+    const region =
+      sel.region === "world"
+        ? "World"
+        : ([...meta.continents, ...meta.countries].find((r) => r.key === sel.region)?.name ?? sel.region);
+    setData({
+      event: meta.events.find((e) => e.id === sel.event)!.name,
+      region,
+      metric: meta.metrics.find((m) => m.key === sel.metric)!.label,
+      metricKey: sel.metric,
+      asOf: new Date(meta.exportDate).toLocaleDateString(undefined, { dateStyle: "medium" }),
+      rows,
+      fileName: `${sel.event}-${sel.region}-${sel.metric}.png`,
+    });
+  };
+  return (
+    <>
+      <button type="button" class="info-btn graphic-btn" onClick={open}>
+        Generate graphic
+      </button>
+      {data && <GraphicDialog data={data} onClose={() => setData(null)} />}
+    </>
   );
 }

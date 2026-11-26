@@ -11,6 +11,8 @@ const byIso2 = new Map(
   Object.entries(urls).map(([path, url]) => [path.slice(path.lastIndexOf("/") + 1, -4).toUpperCase(), url]),
 );
 
+export const flagUrl = (iso2: string) => byIso2.get(iso2.toUpperCase());
+
 export function Flag({ iso2, name }: { iso2: string; name: string }) {
   const url = byIso2.get(iso2.toUpperCase());
   if (!url) return <span class="flag flag-text" title={name}>{iso2}</span>;

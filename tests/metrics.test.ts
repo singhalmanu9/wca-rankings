@@ -207,3 +207,31 @@ describe("quality-of-life changes", () => {
     expect(metric("sustained").compute(rounds, FMC, ctx)).toMatchObject({ display: "26.00", note: "50% accuracy" });
   });
 });
+
+describe("peak Mo5R since Worlds", () => {
+  const avg = (day: number, average: number, comp = 0) => round(day, [average, average, average, average, average], { average, comp });
+  const m = metric("peakMo5r");
+
+  it("finds the best window of 5 consecutive rounds since Worlds", () => {
+    const rounds = [
+      avg(TODAY - 600, 500), // before Worlds, ignored
+      ...[1000, 900, 800, 700, 600, 1500].map((a, i) => avg(TODAY - 400 + i, a, i + 1)),
+    ];
+    // Windows: 1000..600 = 8.00, 900..1500 = 9.00
+    const v = m.compute(rounds, E333, ctx);
+    expect(v?.display).toBe("8.00");
+    expect(v?.at).toEqual({ comp: 5, day: TODAY - 396 });
+  });
+
+  it("a DNF round makes every window containing it a DNF", () => {
+    const dnf = round(TODAY - 395, [-1, -1, 1000, 1000, 1000], { average: -1 });
+    const rounds = [1000, 900, 800, 700, 600].map((a, i) => avg(TODAY - 400 + i, a));
+    expect(m.compute([...rounds, dnf], E333, ctx)?.display).toBe("8.00");
+    expect(m.compute([...rounds.slice(0, 4), dnf, rounds[4]!], E333, ctx)).toBeNull();
+  });
+
+  it("needs 5 rounds since Worlds", () => {
+    const rounds = [1000, 900, 800, 700].map((a, i) => avg(TODAY - 400 + i, a));
+    expect(m.compute(rounds, E333, ctx)).toBeNull();
+  });
+});
