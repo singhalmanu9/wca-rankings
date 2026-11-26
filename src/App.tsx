@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { EVENT_SHORT, loadMeta, loadRegion, rank, type Cell, type Meta, type RegionFile } from "./data";
+import { EVENT_SHORT, loadMeta, loadRegion, rank, recordTag, regionBests, type Cell, type Meta, type RegionFile } from "./data";
 import { Flag } from "./flags";
 import { GraphicDialog, type GraphicData } from "./graphic";
 
@@ -203,6 +203,8 @@ function Rankings({ meta, sel, update }: { meta: Meta; sel: Selection; update: (
   const all = meta.metrics.filter((m) => ev.metrics.includes(m.key));
   const columns = [...all.filter((m) => m.key === sel.metric), ...all.filter((m) => m.key !== sel.metric)];
   const countryName = useMemo(() => new Map(meta.countries.map((c) => [c.key.toUpperCase(), c.name])), [meta]);
+  const bests = useMemo(() => (file ? regionBests(file.rows, ev.metrics) : new Map<string, number>()), [file, ev]);
+  const tag = recordTag(sel.region);
   const ranked = useMemo(() => (file ? rank(file.rows, sel.metric, meta.topN) : []), [file, sel.metric, meta.topN]);
 
   if (error) return <p class="error">Couldn't load this table: {error}</p>;
@@ -261,6 +263,12 @@ function Rankings({ meta, sel, update }: { meta: Meta; sel: Selection; update: (
                     <td key={c.key} class={c.key === sel.metric ? "metric sorted" : "metric"}>
                       {cell ? (
                         <>
+                          <span class="line">
+                          {bests.get(c.key) === cell.s && (
+                            <span class={`rec ${tag.kind}`} title={`Best in this region`}>
+                              {tag.label}
+                            </span>
+                          )}
                           {cell.c ? (
                             <span
                               class="value has-tip"
@@ -275,6 +283,7 @@ function Rankings({ meta, sel, update }: { meta: Meta; sel: Selection; update: (
                           ) : (
                             <span class="value">{cell.d}</span>
                           )}
+                          </span>
                           {cell.n && <span class="note">{cell.n}</span>}
                         </>
                       ) : (
@@ -435,6 +444,8 @@ function GraphicButton({ meta, sel }: { meta: Meta; sel: Selection }) {
       metricKey: sel.metric,
       asOf: new Date(meta.exportDate).toLocaleDateString(undefined, { dateStyle: "medium" }),
       rows,
+      best: regionBests(file.rows, [sel.metric]).get(sel.metric),
+      tag: recordTag(sel.region),
       fileName: `${sel.event}-${sel.region}-${sel.metric}.png`,
     });
   };

@@ -2,7 +2,7 @@
 // 1080x1080 template and shows it in a preview with Download / Copy.
 
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { Row } from "./data";
+import type { RecordTag, Row } from "./data";
 import { flagUrl } from "./flags";
 
 export interface GraphicData {
@@ -13,6 +13,9 @@ export interface GraphicData {
   asOf: string;
   rows: { rank: number; row: Row }[];
   fileName: string;
+  /** Region best for this metric, tagged like WCA Live. */
+  best: number | undefined;
+  tag: RecordTag;
 }
 
 const SIZE = 1080;
@@ -27,6 +30,7 @@ const C = {
   accent: "#60a5fa",
   podium: ["#facc15", "#d4d4d8", "#d97706"],
 };
+const TAG = { wr: ["#dc2626", "#ffffff"], cr: ["#facc15", "#422006"], nr: ["#16a34a", "#ffffff"] } as const;
 
 function loadImage(src: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
@@ -120,6 +124,20 @@ export async function renderGraphic(g: GraphicData): Promise<Blob> {
     ctx.font = `700 36px ${FONT}`;
     ctx.fillText(cell.d, vx, mid);
     let left = vx - ctx.measureText(cell.d).width;
+    if (cell.s === g.best) {
+      ctx.font = `700 20px ${FONT}`;
+      const w = ctx.measureText(g.tag.label).width + 16;
+      const [bg, fg] = TAG[g.tag.kind];
+      ctx.fillStyle = bg;
+      ctx.beginPath();
+      ctx.roundRect(left - 12 - w, mid - 15, w, 30, 6);
+      ctx.fill();
+      ctx.fillStyle = fg;
+      ctx.textAlign = "center";
+      ctx.fillText(g.tag.label, left - 12 - w / 2, mid + 1);
+      ctx.textAlign = "right";
+      left -= 12 + w;
+    }
     if (cell.n) {
       ctx.fillStyle = C.text3;
       ctx.font = `400 20px ${FONT}`;

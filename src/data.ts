@@ -98,3 +98,35 @@ export const EVENT_SHORT: Record<string, string> = {
   "333mbf": "MBLD",
   fto: "FTO",
 };
+
+export interface RecordTag {
+  label: string;
+  kind: "wr" | "cr" | "nr";
+}
+
+const CONTINENT_RECORD: Record<string, string> = {
+  "c-africa": "AfR",
+  "c-asia": "AsR",
+  "c-europe": "ER",
+  "c-north-america": "NAR",
+  "c-oceania": "OcR",
+  "c-south-america": "SAR",
+};
+
+/** The tag for the best value in a region, like WCA Live's WR / AsR / NR. */
+export function recordTag(region: string): RecordTag {
+  if (region === "world") return { label: "WR", kind: "wr" };
+  const cr = CONTINENT_RECORD[region];
+  return cr ? { label: cr, kind: "cr" } : { label: "NR", kind: "nr" };
+}
+
+/** Best (lowest) sort key per metric among a region file's rows; ties all count. */
+export function regionBests(rows: Row[], metrics: string[]): Map<string, number> {
+  const best = new Map<string, number>();
+  for (const row of rows)
+    for (const key of metrics) {
+      const s = row.m[key]?.s;
+      if (s !== undefined && !(s >= (best.get(key) ?? Infinity))) best.set(key, s);
+    }
+  return best;
+}
