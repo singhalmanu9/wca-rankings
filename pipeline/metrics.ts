@@ -71,8 +71,6 @@ export const DECAY_REQUIRE_WITHIN_DAYS = 365;
 export const SUSTAINED_ATTEMPTS = 100;
 export const SUSTAINED_ATTEMPTS_SHORT = 50;
 export const SUSTAINED_SHORT_EVENTS = new Set(["333fm", "444bf", "555bf", "333mbf", "666", "777"]);
-/** Fraction dropped from each end of the trimmed sustained average (rounded up). */
-export const SUSTAINED_TRIM_FRACTION = 0.05;
 export const LAST_ROUNDS = 10;
 /** Window length of Peak Mo5R since Worlds. */
 export const MO5R_ROUNDS = 5;
@@ -243,11 +241,11 @@ export const METRICS: Metric[] = [
   {
     key: "sustained",
     label: "Sustained average",
-    blurb: "Trimmed average of the last 100 solves (50 for long events)",
+    blurb: "Mean of the last 100 solves (50 for long events)",
     description:
       "Speed over a long stretch: the last 100 official attempts (last 50 for 6x6, 7x7, FMC, 4BLD, 5BLD and Multi-Blind), never counting DNS. " +
-      "For most events this is a WCA-style trimmed average: the best and worst 5% are dropped, DNFs count as worst, and more DNFs than can be trimmed makes it a DNF. " +
-      "For FMC and blindfolded events it's the mean of the successes among those attempts, with the accuracy shown. " +
+      "It's the plain mean of the successful solves among those attempts, with nothing trimmed. DNFs are left out of the mean: " +
+      "for FMC and blindfolded events the accuracy is shown, for other events the number of DNFs. " +
       "Requires the full number of attempts and a result in the last 2 years.",
     applies: () => true,
     compute(rounds, ev, ctx) {
@@ -263,26 +261,16 @@ export const METRICS: Metric[] = [
       }
       if (attempts.length < want) return null;
 
-      if (HIGH_DNF_EVENTS.has(ev.id)) {
-        const ok = attempts.filter((v) => v > 0).map((v) => singleNatural(ev, v));
-        if (ok.length === 0) return null;
-        const mean = ok.reduce((s, v) => s + v, 0) / ok.length;
-        return {
-          sort: naturalSortKey(ev, mean),
-          display: formatNatural(ev, mean),
-          note: `${Math.round((ok.length / attempts.length) * 100)}% accuracy`,
-        };
-      }
-
-      const trim = Math.ceil(want * SUSTAINED_TRIM_FRACTION);
-      const dnfs = attempts.filter((v) => v === DNF).length;
-      if (dnfs > trim) return null; // a DNF average isn't ranked
-      const sorted = attempts
-        .map((v) => (v === DNF ? Infinity : singleNatural(ev, v)))
-        .sort((a, b) => a - b)
-        .slice(trim, want - trim);
-      const mean = sorted.reduce((s, v) => s + v, 0) / sorted.length;
-      return { sort: naturalSortKey(ev, mean), display: formatNatural(ev, mean), note: dnfs ? `${dnfs} DNF` : undefined };
+      const ok = attempts.filter((v) => v > 0).map((v) => singleNatural(ev, v));
+      if (ok.length === 0) return null;
+      const mean = ok.reduce((sum, v) => sum + v, 0) / ok.length;
+      const dnfs = attempts.length - ok.length;
+      const note = HIGH_DNF_EVENTS.has(ev.id)
+        ? `${Math.round((ok.length / attempts.length) * 100)}% accuracy`
+        : dnfs
+          ? `${dnfs} DNF`
+          : undefined;
+      return { sort: naturalSortKey(ev, mean), display: formatNatural(ev, mean), note };
     },
   },
   {

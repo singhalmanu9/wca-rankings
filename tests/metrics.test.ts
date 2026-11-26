@@ -69,25 +69,20 @@ describe("sustained average", () => {
   const twentyRounds = (make: (i: number) => number[]) =>
     Array.from({ length: 20 }, (_, i) => round(TODAY - 200 + i, make(i)));
 
-  it("trims 5 each side and treats DNF as worst", () => {
-    // 100 attempts: 95 x 1000, plus 5 DNFs -> trimmed away completely
-    const rounds = twentyRounds((i) => (i < 5 ? [-1, 1000, 1000, 1000, 1000] : [1000, 1000, 1000, 1000, 1000]));
+  it("is a plain mean of the successes, with DNFs counted in the note", () => {
+    // 100 attempts: 5 DNFs, 5 x 20.00, 90 x 10.00 -> nothing trimmed, mean of 95 successes
+    const rounds = twentyRounds((i) => (i < 5 ? [-1, 1000, 1000, 1000, 2000] : [1000, 1000, 1000, 1000, 1000]));
     const v = metric("sustained").compute(rounds, E333, ctx)!;
-    expect(v.display).toBe("10.00");
+    expect(v.display).toBe(formatCentiseconds(Math.round((90 * 1000 + 5 * 2000) / 95)));
     expect(v.note).toBe("5 DNF");
-  });
-
-  it("is a DNF (unranked) with more than 5 DNFs", () => {
-    const rounds = twentyRounds((i) => (i < 6 ? [-1, 1000, 1000, 1000, 1000] : [1000, 1000, 1000, 1000, 1000]));
-    expect(metric("sustained").compute(rounds, E333, ctx)).toBeNull();
   });
 
   it("never counts DNS and needs 100 attempts", () => {
     const rounds = twentyRounds(() => [1000, 1000, 1000, 1000, -2]);
     expect(metric("sustained").compute(rounds, E333, ctx)).toBeNull();
     const more = [...Array.from({ length: 5 }, (_, i) => round(TODAY - 300 + i, [2000, 2000, 2000, 2000, 2000])), ...rounds];
-    // 80 x 10.00 recent + 20 x 20.00 older -> trim 5 best (10.00), 5 worst (20.00)
-    expect(metric("sustained").compute(more, E333, ctx)!.display).toBe("11.67");
+    // 80 x 10.00 recent + 20 x 20.00 older -> plain mean 12.00
+    expect(metric("sustained").compute(more, E333, ctx)!.display).toBe("12.00");
   });
 
   it("uses only the most recent 100 attempts", () => {
@@ -189,15 +184,13 @@ describe("quality-of-life changes", () => {
     expect(metric("last10").compute(rounds, E333, ctx)!.note).toBeUndefined();
   });
 
-  it("sustained average uses 50 attempts for 6x6/7x7 and trims 3 each side", () => {
+  it("sustained average uses 50 attempts for 6x6/7x7", () => {
     const E666 = ev("666");
-    // 17 mean-of-3 rounds = 51 attempts (the oldest drops off); the last 50 have 3 DNFs, which are trimmed.
+    // 17 mean-of-3 rounds = 51 attempts (the oldest drops off); the last 50 have 3 DNFs, left out of the mean.
     const rounds = Array.from({ length: 17 }, (_, i) => round(TODAY - 100 + i, i >= 1 && i < 4 ? [-1, 10000, 10000] : [10000, 10000, 10000], { format: "m" }));
     const v = metric("sustained").compute(rounds, E666, ctx)!;
     expect(v.display).toBe("1:40.00");
     expect(v.note).toBe("3 DNF");
-    rounds[4] = round(TODAY - 96, [-1, 10000, 10000], { format: "m" });
-    expect(metric("sustained").compute(rounds, E666, ctx)).toBeNull(); // 4 DNFs > 3 trimmed
     // 3x3 still needs 100
     expect(metric("sustained").compute(rounds, E333, ctx)).toBeNull();
   });
