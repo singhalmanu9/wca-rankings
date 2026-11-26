@@ -5,7 +5,7 @@ export interface Meta {
   builtAt: string;
   topN: number;
   lastWorlds: { id: string; name: string; date: string };
-  metrics: { key: string; label: string; description: string }[];
+  metrics: { key: string; label: string; blurb?: string; description: string }[];
   events: { id: string; name: string; metrics: string[]; regions: string[] }[];
   continents: { key: string; name: string }[];
   countries: { key: string; name: string; continent: string }[];

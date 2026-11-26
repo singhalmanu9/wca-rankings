@@ -442,6 +442,7 @@ function GraphicButton({ meta, sel }: { meta: Meta; sel: Selection }) {
       region,
       metric: meta.metrics.find((m) => m.key === sel.metric)!.label,
       metricKey: sel.metric,
+      blurb: meta.metrics.find((m) => m.key === sel.metric)!.blurb,
       asOf: new Date(meta.exportDate).toLocaleDateString(undefined, { dateStyle: "medium" }),
       rows,
       best: regionBests(file.rows, [sel.metric]).get(sel.metric),

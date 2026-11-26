@@ -10,6 +10,7 @@ export interface GraphicData {
   region: string;
   metric: string;
   metricKey: string;
+  blurb?: string;
   asOf: string;
   rows: { rank: number; row: Row }[];
   fileName: string;
@@ -49,6 +50,35 @@ function fit(ctx: CanvasRenderingContext2D, text: string, max: number): string {
   return s.trimEnd() + "…";
 }
 
+/** Splits `text` into at most `lines` lines of `max` pixels; the last one is shortened if needed. */
+function wrap(ctx: CanvasRenderingContext2D, text: string, max: number, lines: number): string[] {
+  const out: string[] = [];
+  let line = "";
+  for (const word of text.split(" ")) {
+    const next = line ? `${line} ${word}` : word;
+    if (ctx.measureText(next).width <= max || !line) line = next;
+    else {
+      out.push(line);
+      line = word;
+    }
+  }
+  out.push(line);
+  if (lines >= 2 && out.length === 2) {
+    // Split two lines near the middle instead of leaving one word on its own.
+    const words = text.split(" ");
+    let best = out;
+    let bestW = Infinity;
+    for (let i = 1; i < words.length; i++) {
+      const pair = [words.slice(0, i).join(" "), words.slice(i).join(" ")];
+      const w = Math.max(...pair.map((l) => ctx.measureText(l).width));
+      if (w <= max && w < bestW) [best, bestW] = [pair, w];
+    }
+    return best;
+  }
+  if (out.length <= lines) return out;
+  return [...out.slice(0, lines - 1), fit(ctx, out.slice(lines - 1).join(" "), max)];
+}
+
 export async function renderGraphic(g: GraphicData): Promise<Blob> {
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = SIZE;
@@ -71,13 +101,23 @@ export async function renderGraphic(g: GraphicData): Promise<Blob> {
   ctx.fillStyle = C.text;
   ctx.font = `700 60px ${FONT}`;
   ctx.fillText(fit(ctx, g.metric, SIZE - 2 * PAD), PAD, 184);
+  let y = 230;
+  if (g.blurb) {
+    ctx.fillStyle = C.text;
+    ctx.font = `400 28px ${FONT}`;
+    for (const line of wrap(ctx, g.blurb, SIZE - 2 * PAD, 2)) {
+      ctx.fillText(line, PAD, y);
+      y += 38;
+    }
+  }
   ctx.fillStyle = C.text2;
-  ctx.font = `400 26px ${FONT}`;
-  ctx.fillText(`Top 10 · results as of ${g.asOf}`, PAD, 230);
+  ctx.font = `400 24px ${FONT}`;
+  ctx.fillText(`Top 10 · results as of ${g.asOf}`, PAD, y);
 
   // Rows
-  const top = 282;
-  const rowH = 66;
+  const top = y + 52;
+  // Rows shrink a little when a two-line blurb takes their space.
+  const rowH = Math.min(66, (SIZE - 92 - top) / 10);
   const flags = await Promise.all(
     g.rows.map(({ row }) => {
       const url = flagUrl(row.country);

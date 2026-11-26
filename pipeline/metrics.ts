@@ -53,6 +53,8 @@ export interface Metric {
   key: string;
   /** Column header. */
   label: string;
+  /** One line for the generated graphic. */
+  blurb: string;
   /** One-paragraph explanation shown on the site. */
   description: string;
   applies(ev: EventInfo): boolean;
@@ -135,6 +137,7 @@ export const METRICS: Metric[] = [
   {
     key: "prSingle",
     label: "PR single",
+    blurb: "All-time best single, as on the official WCA rankings",
     description: "All-time best single, exactly as on the official WCA rankings. Shown for reference.",
     applies: () => true,
     compute: (rounds, ev) => bestSingle(rounds, ev, -Infinity),
@@ -142,6 +145,7 @@ export const METRICS: Metric[] = [
   {
     key: "prAverage",
     label: "PR average",
+    blurb: "All-time best average, as on the official WCA rankings",
     description: "All-time best average, exactly as on the official WCA rankings. Shown for reference.",
     applies: hasAverage,
     compute: (rounds, ev) => bestAverage(rounds, ev, -Infinity),
@@ -149,6 +153,7 @@ export const METRICS: Metric[] = [
   {
     key: "worldsSingle",
     label: "Single since Worlds",
+    blurb: "Best single since the last World Championship",
     description:
       "Best single at competitions starting on or after the most recent WCA World Championship (that championship included).",
     applies: () => true,
@@ -157,6 +162,7 @@ export const METRICS: Metric[] = [
   {
     key: "worldsAverage",
     label: "Average since Worlds",
+    blurb: "Best average or mean since the last World Championship",
     description:
       "Best average at competitions starting on or after the most recent WCA World Championship (that championship included).",
     applies: hasAverage,
@@ -165,6 +171,7 @@ export const METRICS: Metric[] = [
   {
     key: "peakMo5r",
     label: "Peak Mo5R since Worlds",
+    blurb: "Best mean of 5 rounds in a row since Worlds; a DNF round breaks the run",
     description:
       "Best mean of 5 consecutive rounds since the most recent World Championship (the round average; the best single for blindfolded events; best-of rounds of other events are skipped). " +
       "A DNF round or missed cutoff makes every window it's in a DNF. Hover the value for the competition where the best window ended.",
@@ -193,6 +200,7 @@ export const METRICS: Metric[] = [
   {
     key: "recentSingle",
     label: "12-month peak single",
+    blurb: "Best single in the last 12 months",
     description: "Best single at competitions that started in the last 12 months (a peak, not an average over the year).",
     applies: () => true,
     compute: (rounds, ev, ctx) => bestSingle(rounds, ev, ctx.today - RECENT_WINDOW_DAYS),
@@ -200,6 +208,7 @@ export const METRICS: Metric[] = [
   {
     key: "recentAverage",
     label: "12-month peak average",
+    blurb: "Best average in the last 12 months",
     description: "Best average at competitions that started in the last 12 months (a peak, not an average over the year).",
     applies: hasAverage,
     compute: (rounds, ev, ctx) => bestAverage(rounds, ev, ctx.today - RECENT_WINDOW_DAYS),
@@ -207,6 +216,7 @@ export const METRICS: Metric[] = [
   {
     key: "decayed",
     label: "XP weighted mean",
+    blurb: "Weight recent rounds exponentially more than past rounds, halving every 3 months",
     description:
       "XP = exponential. Weighted mean of every successful round result (the round average; the best single for blindfolded events), where a result's weight halves every 3 months. " +
       "DNF rounds and missed cutoffs are left out. Requires at least 3 such rounds and one in the last 12 months.",
@@ -233,6 +243,7 @@ export const METRICS: Metric[] = [
   {
     key: "sustained",
     label: "Sustained average",
+    blurb: "Trimmed average of the last 100 solves (50 for long events)",
     description:
       "Speed over a long stretch: the last 100 official attempts (last 50 for 6x6, 7x7, FMC, 4BLD, 5BLD and Multi-Blind), never counting DNS. " +
       "For most events this is a WCA-style trimmed average: the best and worst 5% are dropped, DNFs count as worst, and more DNFs than can be trimmed makes it a DNF. " +
@@ -277,6 +288,7 @@ export const METRICS: Metric[] = [
   {
     key: "last10",
     label: "Last 10 rounds",
+    blurb: "Mean of the last 10 round results, irrespective of recency",
     description:
       "Plain mean of the results of the last 10 rounds (the round average; the best single for blindfolded events; best-of rounds of other events are skipped). " +
       "DNF rounds and missed cutoffs still use up one of the 10 but are left out of the mean; when that happens, the note shows how many rounds counted. " +

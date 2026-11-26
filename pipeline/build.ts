@@ -238,7 +238,7 @@ async function main() {
     builtAt: new Date().toISOString(),
     topN: TOP_N,
     lastWorlds: { id: worlds.id, name: worlds.name, date: isoDay(worlds.day) },
-    metrics: METRICS.map(({ key, label, description }) => ({ key, label, description })),
+    metrics: METRICS.map(({ key, label, blurb, description }) => ({ key, label, blurb, description })),
     events: eventMeta,
     continents: [...continents]
       .map(([id, name]) => ({ key: regionKeyForContinent(id), name }))
