@@ -59,7 +59,6 @@ h1 {
 
 header p {
   margin: 0 0 20px;
-  max-width: 70ch;
 }
 
 .muted {
@@ -154,6 +153,10 @@ select {
   cursor: pointer;
 }
 
+.copy-btn {
+  margin-left: auto;
+}
+
 .info-btn:hover,
 .info-btn.open {
   color: var(--accent);
@@ -203,7 +206,9 @@ select {
 /* ---- Table ---- */
 
 .table-wrap {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: calc(100vh - 16px);
+  max-height: calc(100dvh - 16px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
@@ -233,7 +238,9 @@ tbody tr:hover td {
 thead th {
   position: sticky;
   top: 0;
+  z-index: 2;
   background: var(--bg);
+  box-shadow: inset 0 -1px 0 var(--border);
   font-size: 12px;
   font-weight: 600;
   color: var(--text-2);
@@ -308,7 +315,10 @@ tbody tr:hover td.metric.sorted {
 footer {
   margin-top: 24px;
   font-size: 12px;
-  max-width: 90ch;
+}
+
+footer p {
+  margin: 0;
 }
 
 .flag {
@@ -356,6 +366,11 @@ footer {
   line-height: 1.4;
   pointer-events: none;
   box-shadow: 0 4px 16px rgb(0 0 0 / 0.25);
+}
+
+.tip.wide {
+  max-width: 340px;
+  white-space: normal;
 }
 
 .tip strong,
@@ -441,6 +456,9 @@ footer {
     max-width: 42vw;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  th.name {
+    z-index: 3;
   }
   footer {
     font-size: 11px;

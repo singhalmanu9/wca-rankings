@@ -36,20 +36,22 @@ export function App() {
       .then((m) => {
         setMeta(m);
         setSel(resolve(m, parseHash()));
+        // A shared link's hash is applied once, then dropped so it can't go stale.
+        if (location.hash) history.replaceState(null, "", location.pathname + location.search);
       })
       .catch((e: Error) => setError(e.message));
   }, []);
 
   useEffect(() => {
     if (!meta) return;
-    const onHash = () => setSel(resolve(meta, parseHash()));
+    const onHash = () => {
+      if (!location.hash) return;
+      setSel(resolve(meta, parseHash()));
+      history.replaceState(null, "", location.pathname + location.search);
+    };
     addEventListener("hashchange", onHash);
     return () => removeEventListener("hashchange", onHash);
   }, [meta]);
-
-  useEffect(() => {
-    if (sel) history.replaceState(null, "", `#/${sel.event}/${sel.region}/${sel.metric}`);
-  }, [sel]);
 
   if (error) return <Shell><p class="error">Couldn't load rankings: {error}</p></Shell>;
   if (!meta || !sel) return <Shell><p class="muted">Loading…</p></Shell>;
@@ -69,7 +71,7 @@ function Shell({ meta, children }: { meta?: Meta; children: preact.ComponentChil
   return (
     <div class="page">
       <header>
-        <h1>Current-form rankings</h1>
+        <h1>Recency Weighted Rankings</h1>
         <p class="muted">
           WCA rankings that care about what you've done lately, not just your all-time PR. Pick an event, a region and a
           ranking system; click any column to sort by it.
@@ -137,6 +139,7 @@ function Controls({ meta, sel, update }: { meta: Meta; sel: Selection; update: (
           </select>
         </label>
         <MetricInfo metric={meta.metrics.find((m) => m.key === sel.metric)!} />
+        <CopyLink sel={sel} />
       </div>
     </section>
   );
@@ -147,7 +150,11 @@ interface Tip {
   detail: string;
   x: number;
   y: number;
+  wide?: boolean;
 }
+
+/** Touch screens get the (i) button only; hover tooltips are for mice. */
+const canHover = () => matchMedia("(hover: hover)").matches;
 
 const DAY_MS = 86_400_000;
 
@@ -204,6 +211,11 @@ function Rankings({ meta, sel, update }: { meta: Meta; sel: Selection; update: (
     setTip({ title: file.comps[cell.c] ?? cell.c, detail: describeWhen(cell.t), x: rect.left + rect.width / 2, y: rect.bottom });
   };
 
+  const showHeaderTip = (e: Event, m: { label: string; description: string }) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setTip({ title: m.label, detail: m.description, x: rect.left + rect.width / 2, y: rect.bottom, wide: true });
+  };
+
   return (
     <>
       <div class="table-wrap">
@@ -218,7 +230,11 @@ function Rankings({ meta, sel, update }: { meta: Meta; sel: Selection; update: (
                   class={c.key === sel.metric ? "metric sorted" : "metric"}
                   aria-sort={c.key === sel.metric ? "ascending" : undefined}
                 >
-                  <button title={c.description} onClick={() => update({ metric: c.key })}>
+                  <button
+                    onClick={() => update({ metric: c.key })}
+                    onMouseEnter={(e) => canHover() && showHeaderTip(e, c)}
+                    onMouseLeave={() => setTip(null)}
+                  >
                     {c.label}
                   </button>
                 </th>
@@ -270,9 +286,9 @@ function Rankings({ meta, sel, update }: { meta: Meta; sel: Selection; update: (
       </div>
       {tip && (
         <div
-          class="tip"
+          class={tip.wide ? "tip wide" : "tip"}
           role="tooltip"
-          style={{ left: `${Math.min(Math.max(tip.x, 130), window.innerWidth - 130)}px`, top: `${tip.y + 6}px` }}
+          style={{ left: `${Math.min(Math.max(tip.x, tip.wide ? 170 : 130), window.innerWidth - (tip.wide ? 170 : 130))}px`, top: `${tip.y + 6}px` }}
         >
           <strong>{tip.title}</strong>
           <span>{tip.detail}</span>
@@ -374,5 +390,25 @@ function MetricInfo({ metric }: { metric: { key: string; label: string; descript
         </div>
       )}
     </div>
+  );
+}
+
+/** Copies a link to the current view; the address bar itself stays clean. */
+function CopyLink({ sel }: { sel: Selection }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => setCopied(false), [sel]);
+  const copy = async () => {
+    const url = `${location.origin}${location.pathname}#/${sel.event}/${sel.region}/${sel.metric}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+    } catch {
+      prompt("Copy this link:", url);
+    }
+  };
+  return (
+    <button type="button" class="info-btn copy-btn" onClick={copy}>
+      {copied ? "Link copied" : "Copy link"}
+    </button>
   );
 }

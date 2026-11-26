@@ -162,23 +162,23 @@ export const METRICS: Metric[] = [
   },
   {
     key: "recentSingle",
-    label: "12-month single",
-    description: "Best single at competitions that started in the last 12 months.",
+    label: "12-month peak single",
+    description: "Best single at competitions that started in the last 12 months (a peak, not an average over the year).",
     applies: () => true,
     compute: (rounds, ev, ctx) => bestSingle(rounds, ev, ctx.today - RECENT_WINDOW_DAYS),
   },
   {
     key: "recentAverage",
-    label: "12-month average",
-    description: "Best average at competitions that started in the last 12 months.",
+    label: "12-month peak average",
+    description: "Best average at competitions that started in the last 12 months (a peak, not an average over the year).",
     applies: hasAverage,
     compute: (rounds, ev, ctx) => bestAverage(rounds, ev, ctx.today - RECENT_WINDOW_DAYS),
   },
   {
     key: "decayed",
-    label: "Decayed mean",
+    label: "XP weighted mean",
     description:
-      "Weighted mean of every successful round result (the round average; the best single for blindfolded events), where a result's weight halves every 3 months. " +
+      "XP = exponential. Weighted mean of every successful round result (the round average; the best single for blindfolded events), where a result's weight halves every 3 months. " +
       "DNF rounds and missed cutoffs are left out. Requires at least 3 such rounds and one in the last 12 months.",
     applies: () => true,
     compute(rounds, ev, ctx) {

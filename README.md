@@ -1,4 +1,4 @@
-# WCA Current-Form Rankings
+# Recency Weighted Rankings
 
 Rankings for every official WCA event that weigh recent results more than old
 ones, instead of only all-time PR single and average. Filter by world,
@@ -12,8 +12,8 @@ Live at https://singhalmanu9.github.io/wca-rankings/
 |---|---|
 | PR single / average | All-time bests, as on the official rankings (for reference). Hover any PR-style value for the competition and how long ago it was |
 | Single / average since Worlds | Bests at competitions starting on or after the latest World Championship |
-| 12-month single / average | Bests at competitions that started in the last 12 months |
-| Decayed mean | Weighted mean of every successful round result, weight halving every 3 months; needs 3 rounds and one in the last year |
+| 12-month peak single / average | Bests at competitions that started in the last 12 months |
+| XP weighted mean | Exponentially weighted mean of every successful round result, weight halving every 3 months; needs 3 rounds and one in the last year |
 | Sustained average | Last 100 attempts (50 for 6x6, 7x7, FMC, 4BLD, 5BLD, MBLD): WCA-style trimmed average, 5% dropped each side, DNF = worst, too many DNFs = DNF. FMC and blindfolded: mean of the successes plus accuracy. DNS never counts |
 | Last 10 rounds | Mean of the last 10 round results; DNF rounds and missed cutoffs use a slot but aren't averaged, and then the count is shown |
 
@@ -48,22 +48,6 @@ than 50 days old the check job pushes an empty "[skip ci]" commit (about 7 a
 year, only while the repo is otherwise idle). A failed run emails the repo
 owner, and the page shows a stale-data warning after 3 days.
 
-### Timings (local, 7.1M results / 32.8M attempts)
-
-| Step | Time |
-|---|---|
-| Download export (389 MB) | ~6 s |
-| Unzip the tables we use | ~8 s |
-| Load small tables | 0.7 s |
-| Load results | 7 s |
-| Load attempts | 3 s |
-| Group by event and competitor | 0.4 s |
-| Compute metrics, rank regions, write ~2,300 files | 10 s |
-
-The big tables are read by a byte-level scanner (`scanTsv`) instead of
-line splitting, and rows are grouped with a counting sort; together those took
-the pipeline from ~41 s to ~21 s with identical output.
-
 ## Local development
 
 ```sh
@@ -78,3 +62,6 @@ npm test
 
 This information is based on competition results owned and maintained by the
 World Cube Association, published at https://worldcubeassociation.org/results.
+
+This site is owned and maintained by Abhimanyu Singhal (2013SING12). It is not
+affiliated with or maintained by the WCA in any way.
