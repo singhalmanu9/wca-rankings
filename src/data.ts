@@ -8,7 +8,14 @@ export interface Meta {
   /** The movement arrows compare against rankings as of `since` (YYYY-MM-DD). */
   movement?: { days: number; since: string };
   /** Registrants of the upcoming Worlds, as a pseudo-region (absent when there's none). */
-  field?: { key: string; name: string; competition: string; competitionName: string };
+  field?: {
+    key: string;
+    name: string;
+    competition: string;
+    competitionName: string;
+    /** The podium crowned in the field view: the Worlds before this one. */
+    crownsFrom?: { id: string; name: string; date: string };
+  };
   metrics: { key: string; label: string; blurb?: string; description: string }[];
   events: { id: string; name: string; metrics: string[]; regions: string[] }[];
   continents: { key: string; name: string }[];

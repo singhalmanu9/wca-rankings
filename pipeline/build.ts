@@ -70,18 +70,18 @@ async function main() {
     compName.push(c[k.name!]!);
   });
 
-  let lastWorlds: { id: string; name: string; day: number } | null = null;
-  const worldsDays: number[] = [];
+  // World Championships that have started. Which one is "the last Worlds" is
+  // decided after the results scan: only one whose results are posted counts,
+  // so the "since Worlds" columns don't go empty during Worlds itself.
+  type Worlds = { id: string; name: string; day: number; comp: number };
+  const worldsByComp = new Map<number, Worlds>();
   await readTsv(table("championships"), (c, k) => {
     if (c[k.championship_type!] !== "world") return;
     const id = c[k.competition_id!]!;
     const i = compIndex.get(id);
     if (i === undefined || compDay[i]! > today) return;
-    worldsDays.push(compDay[i]!);
-    if (!lastWorlds || compDay[i]! > lastWorlds.day) lastWorlds = { id, name: compName[i]!, day: compDay[i]! };
+    worldsByComp.set(i, { id, name: compName[i]!, day: compDay[i]!, comp: i });
   });
-  if (!lastWorlds) throw new Error("No past World Championship found");
-  const worlds: { id: string; name: string; day: number } = lastWorlds;
 
   const personIndex = new Map<string, number>();
   const personId: string[] = [];
@@ -94,24 +94,41 @@ async function main() {
     personName.push(c[k.name!]!);
     personCountry.push(c[k.country_id!]!);
   });
-  log(`${events.length} events, ${compDay.length} competitions, ${personId.length} persons; last Worlds ${worlds.name}`);
+  log(`${events.length} events, ${compDay.length} competitions, ${personId.length} persons`);
 
   // ---- Upcoming Worlds registrants (optional) ----
-  // person -> events they're registered for. Dropped once that Worlds has started,
-  // since from then on its results speak for themselves.
-  let field: { competition: string; name: string; hash: string; year: string; byPerson: Map<number, Set<string>> } | null = null;
+  // person -> events they're registered for. Kept until a week after that
+  // Worlds ends (fetch-field.mjs writes the cutoff), for reference during it.
+  let field: {
+    competition: string;
+    name: string;
+    hash: string;
+    year: string;
+    startDay: number;
+    byPerson: Map<number, Set<string>>;
+  } | null = null;
   if (existsSync(FIELD_FILE)) {
     const text = readFileSync(FIELD_FILE, "utf8");
-    const f = JSON.parse(text) as { competition: string; name: string; startDate: string; registrants: [string, string[]][] };
-    const [y, m, d] = f.startDate.split("-").map(Number);
-    if (!f.startDate || today < dayOf(y!, m!, d!)) {
+    const f = JSON.parse(text) as {
+      competition: string;
+      name: string;
+      startDate: string;
+      until?: string;
+      registrants: [string, string[]][];
+    };
+    const isoToDay = (iso: string) => {
+      const [y, m, d] = iso.split("-").map(Number);
+      return dayOf(y!, m!, d!);
+    };
+    if (!f.until || today <= isoToDay(f.until)) {
       const byPerson = new Map<number, Set<string>>();
       for (const [wcaId, evs] of f.registrants) {
         const p = personIndex.get(wcaId);
         if (p !== undefined) byPerson.set(p, new Set(evs));
       }
       const hash = createHash("sha256").update(text).digest("hex");
-      field = { competition: f.competition, name: f.name, hash, year: f.startDate.slice(0, 4), byPerson };
+      const startDay = f.startDate ? isoToDay(f.startDate) : Infinity;
+      field = { competition: f.competition, name: f.name, hash, year: f.startDate.slice(0, 4), startDay, byPerson };
       log(`${f.competition}: ${byPerson.size} registered competitors`);
     }
   }
@@ -123,9 +140,10 @@ async function main() {
   const rRound = new IntColumn(), rFormat = new IntColumn(), rBest = new IntColumn(), rAvg = new IntColumn();
   const rComp = new IntColumn();
   let skipped = 0;
-  // Podium (pos 1-3) of each event's final at the last Worlds: event index -> person -> place.
-  const worldsComp = compIndex.get(worlds.id)!;
-  const podium = new Map<number, Map<number, number>>();
+  // Every started Worlds: whether it has results, and each event final's podium
+  // (pos 1-3): competition -> event index -> person -> place.
+  const worldsWithResults = new Set<number>();
+  const podiums = new Map<number, Map<number, Map<number, number>>>();
   // Field order for scanTsv: 0 id, 1 best, 2 average, 3 competition, 4 round type, 5 event, 6 person, 7 format, 8 pos
   await scanTsv(
     table("results"),
@@ -135,11 +153,14 @@ async function main() {
     if (ev === undefined) return;
     const p = personIndex.get(r.str(6));
     const comp = r.lookup(3, compIndex);
-    if (comp === worldsComp && p !== undefined && FINAL_ROUNDS.has(r.str(4))) {
+    if (comp !== undefined && worldsByComp.has(comp)) {
+      worldsWithResults.add(comp);
       const pos = r.int(8);
-      if (pos >= 1 && pos <= 3 && r.int(1) > 0) {
-        let m = podium.get(ev);
-        if (!m) podium.set(ev, (m = new Map()));
+      if (p !== undefined && FINAL_ROUNDS.has(r.str(4)) && pos >= 1 && pos <= 3 && r.int(1) > 0) {
+        let byEvent = podiums.get(comp);
+        if (!byEvent) podiums.set(comp, (byEvent = new Map()));
+        let m = byEvent.get(ev);
+        if (!m) byEvent.set(ev, (m = new Map()));
         m.set(p, pos);
       }
     }
@@ -178,6 +199,17 @@ async function main() {
     attempts[row * MAX_ATTEMPTS + num - 1] = r.int(0);
   });
   log("attempts loaded");
+
+  const posted = [...worldsByComp.values()].filter((w) => worldsWithResults.has(w.comp)).sort((a, b) => a.day - b.day);
+  const worlds = posted[posted.length - 1];
+  if (!worlds) throw new Error("No World Championship with results found");
+  const worldsDays = posted.map((w) => w.day);
+  // Crowns in the field view: the podium of the Worlds before the field's one,
+  // i.e. the defending podium, even after the new Worlds' results are posted.
+  const fieldStart = field?.startDay ?? Infinity;
+  const crownWorlds = field ? [...posted].reverse().find((w) => w.day < fieldStart) : undefined;
+  const podium = (crownWorlds && podiums.get(crownWorlds.comp)) ?? new Map<number, Map<number, number>>();
+  log(`last Worlds with results: ${worlds.name}${crownWorlds ? `; crowns from ${crownWorlds.name}` : ""}`);
 
   // ---- Group by event, person, then chronologically ----
   const ev = rEvent.data, pe = rPerson.data, dy = rDay.data, rd = rRound.data;
@@ -324,7 +356,14 @@ async function main() {
     movement: { days: MOVEMENT_DAYS, since: isoDay(compareDay) },
     lastWorlds: { id: worlds.id, name: worlds.name, date: isoDay(worlds.day) },
     field: field && usedRegions.has(FIELD)
-      ? { key: FIELD, name: `Worlds ${field.year} field`, competition: field.competition, competitionName: field.name, hash: field.hash }
+      ? {
+          key: FIELD,
+          name: `Worlds ${field.year} field`,
+          competition: field.competition,
+          competitionName: field.name,
+          hash: field.hash,
+          crownsFrom: crownWorlds ? { id: crownWorlds.id, name: crownWorlds.name, date: isoDay(crownWorlds.day) } : undefined,
+        }
       : undefined,
     metrics: METRICS.map(({ key, label, blurb, description }) => ({ key, label, blurb, description })),
     events: eventMeta,

@@ -265,7 +265,7 @@ function Rankings({ meta, sel, update }: { meta: Meta; sel: Selection; update: (
                   <a href={`https://www.worldcubeassociation.org/persons/${row.id}`} target="_blank" rel="noopener">
                     {row.name}
                   </a>
-                  {sel.region === "field" && row.w && <Crown place={row.w} worlds={meta.lastWorlds} />}
+                  {sel.region === "field" && row.w && meta.field?.crownsFrom && <Crown place={row.w} worlds={meta.field.crownsFrom} />}
                 </td>
                 {columns.map((c) => {
                   const cell = row.m[c.key];
