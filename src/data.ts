@@ -22,6 +22,10 @@ export interface Cell {
   c?: string;
   /** Date of that competition, YYYY-MM-DD. */
   t?: string;
+  /** Rank in this region a week ago (absent if they didn't qualify then). */
+  pr?: number;
+  /** Display value a week ago. */
+  pd?: string;
 }
 
 export interface Row {
@@ -129,4 +133,38 @@ export function regionBests(rows: Row[], metrics: string[]): Map<string, number>
       if (s !== undefined && !(s >= (best.get(key) ?? Infinity))) best.set(key, s);
     }
   return best;
+}
+
+export interface Movement {
+  kind: "up" | "down" | "same" | "new";
+  /** "▲3", "▼2", "–" or "NEW". */
+  text: string;
+  /** "Last week: #5 · 4.51 → 4.38 (−0.13)" */
+  detail: string;
+}
+
+/** Seconds (or moves / points) from a display value; null for multi-blind and others. */
+function displayNumber(d: string): number | null {
+  const pts = /^(-?[\d.]+) pts$/.exec(d);
+  if (pts) return Number(pts[1]);
+  const t = /^(?:(\d+):)?(?:(\d+):)?(\d+(?:\.\d+)?)$/.exec(d);
+  if (!t) return null;
+  const parts = [t[1], t[2], t[3]].filter((x) => x !== undefined).map(Number);
+  return parts.reduce((acc, x) => acc * 60 + x, 0);
+}
+
+/** How a cell's rank changed since last week (power-rankings style). */
+export function movement(cell: Cell, rank: number): Movement {
+  if (cell.pr === undefined) return { kind: "new", text: "NEW", detail: "Not ranked a week ago" };
+  const diff = cell.pr - rank;
+  let detail = `Last week: #${cell.pr}`;
+  if (cell.pd && cell.pd !== cell.d) {
+    detail += ` · ${cell.pd} → ${cell.d}`;
+    const a = displayNumber(cell.pd);
+    const b = displayNumber(cell.d);
+    if (a !== null && b !== null) detail += ` (${b >= a ? "+" : "−"}${Math.abs(b - a).toFixed(2)})`;
+  } else if (cell.pd) detail += ` · ${cell.d}, unchanged`;
+  if (diff > 0) return { kind: "up", text: `▲${diff}`, detail };
+  if (diff < 0) return { kind: "down", text: `▼${-diff}`, detail };
+  return { kind: "same", text: "–", detail };
 }

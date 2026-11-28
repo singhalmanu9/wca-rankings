@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { METRICS, type MetricContext, type MetricValue, type Round } from "./metrics.ts";
 import { IntColumn, readTsv, scanTsv } from "./tsv.ts";
 import type { EventFormat, EventInfo } from "./units.ts";
-import { regionKeyForContinent, rankRegions, type RankedEntry } from "./regions.ts";
+import { regionKeyForContinent, rankRegions, regionRanks, type RankedEntry } from "./regions.ts";
 
 const EXPORT_DIR = process.env.WCA_EXPORT_DIR ?? ".cache/tsv";
 const OUT_DIR = process.env.OUT_DIR ?? "public/data";
@@ -65,11 +65,13 @@ async function main() {
   });
 
   let lastWorlds: { id: string; name: string; day: number } | null = null;
+  const worldsDays: number[] = [];
   await readTsv(table("championships"), (c, k) => {
     if (c[k.championship_type!] !== "world") return;
     const id = c[k.competition_id!]!;
     const i = compIndex.get(id);
     if (i === undefined || compDay[i]! > today) return;
+    worldsDays.push(compDay[i]!);
     if (!lastWorlds || compDay[i]! > lastWorlds.day) lastWorlds = { id, name: compName[i]!, day: compDay[i]! };
   });
   if (!lastWorlds) throw new Error("No past World Championship found");
@@ -146,6 +148,13 @@ async function main() {
   log("sorted");
 
   const ctx: MetricContext = { today, lastWorldsDay: worlds.day };
+  // The same rankings as of a week ago, for the movement arrows: only
+  // competitions that started by then, and "today" moved back too.
+  const weekAgo = today - MOVEMENT_DAYS;
+  const prevCtx: MetricContext = {
+    today: weekAgo,
+    lastWorldsDay: Math.max(...worldsDays.filter((d) => d <= weekAgo)),
+  };
   rmSync(OUT_DIR, { recursive: true, force: true });
   mkdirSync(OUT_DIR, { recursive: true });
 
@@ -166,6 +175,8 @@ async function main() {
     const metrics = METRICS.filter((m) => m.applies(event));
     const values = new Map<number, Record<string, MetricValue>>();
     const entries: Record<string, RankedEntry[]> = Object.fromEntries(metrics.map((m) => [m.key, []]));
+    const prevValues = new Map<number, Record<string, MetricValue>>();
+    const prevEntries: Record<string, RankedEntry[]> = Object.fromEntries(metrics.map((m) => [m.key, []]));
 
     while (i < n && ev[order[i]!] === e) {
       const p = pe[order[i]!]!;
@@ -194,7 +205,19 @@ async function main() {
         entries[m.key]!.push({ person: p, sort: v.sort });
         any = true;
       }
-      if (any) values.set(p, mine);
+      if (!any) continue;
+      values.set(p, mine);
+      let k = rounds.length;
+      while (k > 0 && rounds[k - 1]!.day > weekAgo) k--;
+      const before = k === rounds.length ? rounds : rounds.slice(0, k);
+      const prev: Record<string, MetricValue> = {};
+      for (const m of metrics) {
+        const v = m.compute(before, event, prevCtx);
+        if (!v) continue;
+        prev[m.key] = v;
+        prevEntries[m.key]!.push({ person: p, sort: v.sort });
+      }
+      prevValues.set(p, prev);
     }
 
     if (values.size === 0) {
@@ -204,12 +227,23 @@ async function main() {
 
     // Everyone in the top N of any metric, per region.
     const members = rankRegions(entries, personRegions, TOP_N);
+    const prevRanks = Object.fromEntries(
+      metrics.map((m) => [m.key, regionRanks(prevEntries[m.key]!, personRegions, members)]),
+    );
     const regions: string[] = [];
     mkdirSync(join(OUT_DIR, event.id), { recursive: true });
     for (const [region, people] of members) {
       const comps: Record<string, string> = {};
-      const cell = (v: MetricValue) => {
-        const c: { s: number; d: string; n?: string; c?: string; t?: string } = { s: round4(v.sort), d: v.display };
+      const cell = (p: number, key: string, v: MetricValue) => {
+        const c: { s: number; d: string; n?: string; c?: string; t?: string; pr?: number; pd?: string } = {
+          s: round4(v.sort),
+          d: v.display,
+        };
+        const pr = prevRanks[key]!.get(region)?.get(p);
+        if (pr !== undefined) {
+          c.pr = pr;
+          c.pd = prevValues.get(p)![key]!.display;
+        }
         if (v.note) c.n = v.note;
         if (v.at) {
           const id = compIds[v.at.comp]!;
@@ -223,7 +257,7 @@ async function main() {
         id: personId[p],
         name: personName[p],
         country: countries.get(personCountry[p]!)?.iso2 ?? "",
-        m: Object.fromEntries(Object.entries(values.get(p) ?? {}).map(([key, v]) => [key, cell(v)])),
+        m: Object.fromEntries(Object.entries(values.get(p) ?? {}).map(([key, v]) => [key, cell(p, key, v)])),
       }));
       writeFileSync(join(OUT_DIR, event.id, `${region}.json`), JSON.stringify({ comps, rows }));
       regions.push(region);
@@ -251,6 +285,9 @@ async function main() {
   writeFileSync(join(OUT_DIR, "meta.json"), JSON.stringify(meta, null, 1));
   log("done");
 }
+
+/** How far back the movement arrows compare. */
+const MOVEMENT_DAYS = 7;
 
 const round4 = (x: number) => Math.round(x * 10_000) / 10_000;
 

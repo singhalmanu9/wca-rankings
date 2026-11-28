@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DECAY_HALF_LIFE_DAYS, METRICS, type MetricContext, type Round } from "../pipeline/metrics.ts";
-import { rankRegions } from "../pipeline/regions.ts";
+import { rankRegions, regionRanks } from "../pipeline/regions.ts";
+import { movement } from "../src/data.ts";
 import { decodeMulti, formatCentiseconds, formatSingle, type EventInfo } from "../pipeline/units.ts";
 
 const ev = (id: string, format: EventInfo["format"] = "time"): EventInfo => ({ id, name: id, format, rank: 1 });
@@ -226,5 +227,34 @@ describe("peak Mo5R since Worlds", () => {
   it("needs 5 rounds since Worlds", () => {
     const rounds = [1000, 900, 800, 700].map((a, i) => avg(TODAY - 400 + i, a));
     expect(m.compute(rounds, E333, ctx)).toBeNull();
+  });
+});
+
+describe("week-over-week movement", () => {
+  it("ranks over everyone in the region, ties sharing a rank", () => {
+    const entries = [
+      { person: 1, sort: 500 },
+      { person: 2, sort: 400 },
+      { person: 3, sort: 400 },
+      { person: 4, sort: 300 },
+    ];
+    const regionsOf = (p: number) => (p === 4 ? ["world", "us"] : ["world", "cn"]);
+    const members = new Map([["world", new Set([1, 2, 3])], ["cn", new Set([1])]]);
+    const ranks = regionRanks(entries, regionsOf, members);
+    expect([...ranks.get("world")!]).toEqual([[2, 2], [3, 2], [1, 4]]);
+    expect(ranks.get("cn")!.get(1)).toBe(3);
+    expect(ranks.has("us")).toBe(false);
+  });
+
+  it("describes the change like power rankings", () => {
+    expect(movement({ s: 1, d: "4.38", pr: 5, pd: "4.51" }, 2)).toMatchObject({
+      kind: "up",
+      text: "▲3",
+      detail: "Last week: #5 · 4.51 → 4.38 (−0.13)",
+    });
+    expect(movement({ s: 1, d: "1:02.00", pr: 1, pd: "1:01.50" }, 3)).toMatchObject({ kind: "down", text: "▼2" });
+    expect(movement({ s: 1, d: "1:02.00", pr: 1, pd: "1:01.50" }, 3).detail).toContain("(+0.50)");
+    expect(movement({ s: 1, d: "4.38", pr: 2, pd: "4.38" }, 2)).toMatchObject({ kind: "same", text: "–" });
+    expect(movement({ s: 1, d: "4.38" }, 7)).toMatchObject({ kind: "new", text: "NEW" });
   });
 });

@@ -37,3 +37,32 @@ export function rankRegions(
   }
   return members;
 }
+
+/**
+ * Each listed person's rank in each of their regions (1 + the number of
+ * people strictly ahead, so ties share a rank), counted over everyone in
+ * `entries`, not just the top N. Only people in `members` are recorded.
+ */
+export function regionRanks(
+  entries: RankedEntry[],
+  regionsOf: (person: number) => string[],
+  members: Map<string, Set<number>>,
+): Map<string, Map<number, number>> {
+  const ranks = new Map<string, Map<number, number>>();
+  const count = new Map<string, number>();
+  const last = new Map<string, { sort: number; rank: number }>();
+  for (const { person, sort } of [...entries].sort((a, b) => a.sort - b.sort)) {
+    for (const region of regionsOf(person)) {
+      const c = (count.get(region) ?? 0) + 1;
+      count.set(region, c);
+      const prev = last.get(region);
+      const rank = prev && prev.sort === sort ? prev.rank : c;
+      last.set(region, { sort, rank });
+      if (!members.get(region)?.has(person)) continue;
+      let m = ranks.get(region);
+      if (!m) ranks.set(region, (m = new Map()));
+      m.set(person, rank);
+    }
+  }
+  return ranks;
+}

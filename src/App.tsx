@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { EVENT_SHORT, loadMeta, loadRegion, rank, recordTag, regionBests, type Cell, type Meta, type RegionFile } from "./data";
+import { EVENT_SHORT, loadMeta, loadRegion, movement, rank, recordTag, regionBests, type Cell, type Meta, type RegionFile } from "./data";
 import { Flag } from "./flags";
 import { GraphicDialog, type GraphicData } from "./graphic";
 
@@ -229,6 +229,7 @@ function Rankings({ meta, sel, update }: { meta: Meta; sel: Selection; update: (
           <thead>
             <tr>
               <th class="rank">#</th>
+              <th class="move" title="Change in rank since a week ago">±</th>
               <th class="name">Name</th>
               {columns.map((c) => (
                 <th
@@ -251,6 +252,7 @@ function Rankings({ meta, sel, update }: { meta: Meta; sel: Selection; update: (
             {ranked.map(({ rank, row }, i) => (
               <tr key={row.id}>
                 <td class="rank">{ranked[i - 1]?.rank === rank ? "" : rank}</td>
+                <MoveCell cell={row.m[sel.metric]!} rank={rank} onTip={setTip} />
                 <td class="name">
                   <Flag iso2={row.country} name={countryName.get(row.country) ?? row.country} />
                   <a href={`https://www.worldcubeassociation.org/persons/${row.id}`} target="_blank" rel="noopener">
@@ -457,5 +459,29 @@ function GraphicButton({ meta, sel }: { meta: Meta; sel: Selection }) {
       </button>
       {data && <GraphicDialog data={data} onClose={() => setData(null)} />}
     </>
+  );
+}
+
+/** ▲3 / ▼2 / – / NEW next to the rank; hover or focus shows last week's rank and value. */
+function MoveCell({ cell, rank, onTip }: { cell: Cell; rank: number; onTip: (t: Tip | null) => void }) {
+  const m = movement(cell, rank);
+  const show = (e: Event) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    onTip({ title: m.kind === "new" ? "New this week" : m.text === "–" ? "No change" : `${m.text.slice(1)} place${m.text.slice(1) === "1" ? "" : "s"} ${m.kind}`, detail: m.detail, x: r.left + r.width / 2, y: r.bottom });
+  };
+  return (
+    <td class="move">
+      <span
+        class={`mv ${m.kind}`}
+        tabIndex={0}
+        aria-label={m.detail}
+        onMouseEnter={show}
+        onMouseLeave={() => onTip(null)}
+        onFocus={show}
+        onBlur={() => onTip(null)}
+      >
+        {m.text}
+      </span>
+    </td>
   );
 }

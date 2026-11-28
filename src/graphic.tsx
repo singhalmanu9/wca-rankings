@@ -2,7 +2,7 @@
 // 1080x1080 template and shows it in a preview with Download / Copy.
 
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { RecordTag, Row } from "./data";
+import { movement, type RecordTag, type Row } from "./data";
 import { flagUrl } from "./flags";
 
 export interface GraphicData {
@@ -31,6 +31,7 @@ const C = {
   accent: "#60a5fa",
   podium: ["#facc15", "#d4d4d8", "#d97706"],
 };
+const MOVE = { up: "#22c55e", down: "#f87171", same: "#52525b", new: "#60a5fa" } as const;
 const TAG = { wr: ["#dc2626", "#ffffff"], cr: ["#facc15", "#422006"], nr: ["#16a34a", "#ffffff"] } as const;
 
 function loadImage(src: string): Promise<HTMLImageElement | null> {
@@ -141,7 +142,14 @@ export async function renderGraphic(g: GraphicData): Promise<Blob> {
     ctx.font = `700 32px ${FONT}`;
     ctx.fillText(shownRank, PAD + 46, mid);
 
-    const fx = PAD + 66;
+    // Movement since last week, like the table's ± column.
+    const move = movement(row.m[g.metricKey]!, rank);
+    ctx.textAlign = "left";
+    ctx.fillStyle = MOVE[move.kind];
+    ctx.font = move.kind === "new" ? `700 16px ${FONT}` : `700 22px ${FONT}`;
+    ctx.fillText(move.text, PAD + 60, mid + 1);
+
+    const fx = PAD + 128;
     const flag = flags[i];
     if (flag) {
       ctx.save();
