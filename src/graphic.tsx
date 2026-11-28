@@ -124,8 +124,9 @@ export async function renderGraphic(g: GraphicData): Promise<Blob> {
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = C.text3;
-  ctx.font = `600 16px ${FONT}`;
-  ctx.fillText(`${g.moveDays}-DAY CHANGE`, PAD + 60, top - 6);
+  ctx.font = `600 14px ${FONT}`;
+  ctx.fillText(`${g.moveDays}-DAY`, PAD + 60, top - 24);
+  ctx.fillText("CHANGE", PAD + 60, top - 7);
   // Rows shrink a little when a two-line blurb takes their space.
   const rowH = Math.min(66, (SIZE - 92 - top) / 10);
   const flags = await Promise.all(
