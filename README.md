@@ -29,6 +29,13 @@ competitions that started by then; 10 rather than 7 so a weekend competition
 still counts while its results take a few days to be posted. Hover the arrow
 for the comparison date and the earlier value.
 
+While registration for the next World Championship is open, the region menu
+also has a "Worlds 2027 field": the top 100 among competitors registered for
+that event (from the WCA API, refreshed with each nightly run, and rebuilt
+whenever the list changes). Last Worlds' podium gets a crown there. The
+competition is set in [pipeline/fetch-field.mjs](pipeline/fetch-field.mjs); the
+field disappears once that Worlds starts.
+
 All parameters live at the top of [pipeline/metrics.ts](pipeline/metrics.ts).
 To add a ranking system, add an entry to `METRICS` there; the build and the site
 pick it up automatically.

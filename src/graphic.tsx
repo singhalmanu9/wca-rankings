@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from "preact/hooks";
 import { movement, type RecordTag, type Row } from "./data";
+import { CROWN_COLORS, CROWN_PATH } from "./crown";
 import { flagUrl } from "./flags";
 
 export interface GraphicData {
@@ -20,6 +21,8 @@ export interface GraphicData {
   /** Region best for this metric, tagged like WCA Live. */
   best: number | undefined;
   tag: RecordTag;
+  /** Worlds-field graphic: Swedish yellow/black/blue background and podium crowns. */
+  field: boolean;
 }
 
 const SIZE = 1080;
@@ -35,7 +38,15 @@ const C = {
   podium: ["#facc15", "#d4d4d8", "#d97706"],
 };
 const MOVE = { up: "#22c55e", down: "#f87171", same: "#52525b", new: "#60a5fa" } as const;
-const TAG = { wr: ["#dc2626", "#ffffff"], cr: ["#facc15", "#422006"], nr: ["#16a34a", "#ffffff"] } as const;
+const TAG = {
+  wr: ["#dc2626", "#ffffff"],
+  cr: ["#facc15", "#422006"],
+  nr: ["#16a34a", "#ffffff"],
+  lead: ["#eab308", "#422006"],
+} as const;
+/** Swedish flag colours, for the Worlds 2027 (Uppsala) field graphic. */
+const SWEDEN = { yellow: "254,204,2", blue: "0,106,167" };
+const crownShape = new Path2D(CROWN_PATH);
 
 function loadImage(src: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
@@ -89,17 +100,29 @@ export async function renderGraphic(g: GraphicData): Promise<Blob> {
   const ctx = canvas.getContext("2d")!;
   await document.fonts.ready;
 
-  ctx.fillStyle = C.bg;
+  ctx.fillStyle = g.field ? "#000000" : C.bg;
   ctx.fillRect(0, 0, SIZE, SIZE);
-  const glow = ctx.createRadialGradient(SIZE, 0, 0, SIZE, 0, SIZE * 0.9);
-  glow.addColorStop(0, "rgba(96,165,250,0.18)");
-  glow.addColorStop(1, "rgba(96,165,250,0)");
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, SIZE, SIZE);
+  if (g.field) {
+    // Yellow from the top-right corner, blue from the bottom-left, black between.
+    for (const [x, y, rgb] of [[SIZE, 0, SWEDEN.yellow], [0, SIZE, SWEDEN.blue]] as const) {
+      const glow = ctx.createRadialGradient(x, y, 0, x, y, SIZE * 0.95);
+      glow.addColorStop(0, `rgba(${rgb},0.95)`);
+      glow.addColorStop(0.35, `rgba(${rgb},0.45)`);
+      glow.addColorStop(1, `rgba(${rgb},0)`);
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, SIZE, SIZE);
+    }
+  } else {
+    const glow = ctx.createRadialGradient(SIZE, 0, 0, SIZE, 0, SIZE * 0.9);
+    glow.addColorStop(0, "rgba(96,165,250,0.18)");
+    glow.addColorStop(1, "rgba(96,165,250,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, SIZE, SIZE);
+  }
 
   // Header
   ctx.textBaseline = "alphabetic";
-  ctx.fillStyle = C.accent;
+  ctx.fillStyle = g.field ? `rgb(${SWEDEN.yellow})` : C.accent;
   ctx.font = `600 26px ${FONT}`;
   ctx.fillText(`${g.event} · ${g.region}`.toUpperCase(), PAD, 112);
   ctx.fillStyle = C.text;
@@ -138,8 +161,9 @@ export async function renderGraphic(g: GraphicData): Promise<Blob> {
   g.rows.forEach(({ rank, row }, i) => {
     const y = top + i * rowH;
     const mid = y + rowH / 2;
-    if (i % 2 === 0) {
-      ctx.fillStyle = C.panel;
+    // On the coloured field background every row gets a dark band, for contrast.
+    if (g.field || i % 2 === 0) {
+      ctx.fillStyle = g.field ? (i % 2 === 0 ? "rgba(0,0,0,0.62)" : "rgba(0,0,0,0.45)") : C.panel;
       ctx.beginPath();
       ctx.roundRect(PAD - 16, y + 3, SIZE - 2 * PAD + 32, rowH - 6, 12);
       ctx.fill();
@@ -207,7 +231,18 @@ export async function renderGraphic(g: GraphicData): Promise<Blob> {
     ctx.textAlign = "left";
     ctx.fillStyle = C.text;
     ctx.font = `500 32px ${FONT}`;
-    ctx.fillText(fit(ctx, row.name, left - 28 - nx), nx, mid);
+    const crown = g.field && row.w ? CROWN_COLORS[row.w - 1] : undefined;
+    const name = fit(ctx, row.name, left - 28 - nx - (crown ? 40 : 0));
+    ctx.fillText(name, nx, mid);
+    if (crown) {
+      // Last Worlds' podium: the same crown as the table, scaled up.
+      ctx.save();
+      ctx.translate(nx + ctx.measureText(name).width + 10, mid - 16);
+      ctx.scale(30 / 24, 30 / 24);
+      ctx.fillStyle = crown;
+      ctx.fill(crownShape);
+      ctx.restore();
+    }
   });
 
   // Footer

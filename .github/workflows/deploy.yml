@@ -2,8 +2,9 @@ name: Build rankings and deploy to GitHub Pages
 
 # The WCA publishes a new results export every night (around 00:30 UTC).
 # This runs twice a day; a run first checks whether the export is newer than
-# what's live and skips the build if not, so the second run is a cheap retry
-# for the nights the export is late.
+# what's live, or whether the upcoming Worlds' registration list changed, and
+# skips the build if neither did, so the second run is a cheap retry for the
+# nights the export is late.
 
 on:
   push:
@@ -29,21 +30,27 @@ jobs:
     outputs:
       build: ${{ steps.compare.outputs.build }}
     steps:
+      - uses: actions/checkout@v4
       - id: compare
-        name: Is there a newer WCA export than the live site's?
+        name: Is there a newer WCA export, or new Worlds registrations, than the live site has?
         env:
           EVENT: ${{ github.event_name }}
           SITE: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
         run: |
           set -euo pipefail
           latest=$(curl -fsSL https://www.worldcubeassociation.org/api/v0/export/public | jq -r .export_date)
-          live=$(curl -fsSL "$SITE/data/meta.json" | jq -r .exportDate || echo "")
+          meta=$(curl -fsSL "$SITE/data/meta.json" || echo "{}")
+          live=$(echo "$meta" | jq -r '.exportDate // ""')
+          live_field=$(echo "$meta" | jq -r '.field.hash // ""')
+          # Empty when the WCA API is down or that Worlds has started.
+          field=$(node pipeline/fetch-field.mjs || echo "")
           echo "latest export: $latest"
           echo "live site:     ${live:-none}"
-          if [ "$EVENT" != "schedule" ] || [ -z "$live" ] || [ "$(date -d "$latest" +%s)" -gt "$(date -d "$live" +%s)" ]; then
+          echo "registrations: ${field:-none} (live: ${live_field:-none})"
+          if [ "$EVENT" != "schedule" ] || [ -z "$live" ] || [ "$(date -d "$latest" +%s)" -gt "$(date -d "$live" +%s)" ]             || { [ -n "$field" ] && [ "$field" != "$live_field" ]; }; then
             echo "build=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Live site already has this export; skipping."
+            echo "Live site already has this export and registration list; skipping."
             echo "build=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -51,8 +58,6 @@ jobs:
       # without repository activity. When the last commit on main is more
       # than 50 days old, push an empty commit so the schedule never lapses.
       # "[skip ci]" keeps that push from triggering another build.
-      - uses: actions/checkout@v4
-        if: github.event_name == 'schedule'
       - name: Keepalive commit
         if: github.event_name == 'schedule'
         run: |
@@ -90,6 +95,10 @@ jobs:
             -x WCA_export_scrambles.tsv WCA_export_ranks_single.tsv WCA_export_ranks_average.tsv
           rm .cache/export.zip
           cat .cache/tsv/metadata.json
+
+      - name: Fetch the upcoming Worlds' registrations
+        # Optional: if the WCA API is down, this build just has no Worlds field.
+        run: node pipeline/fetch-field.mjs || echo "Registrations unavailable"
 
       - run: npm run data
       - run: npm run build

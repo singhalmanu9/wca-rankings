@@ -4,7 +4,8 @@
 //
 //   WCA_EXPORT_DIR=.cache/tsv npm run data
 
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { METRICS, type MetricContext, type MetricValue, type Round } from "./metrics.ts";
 import { IntColumn, readTsv, scanTsv } from "./tsv.ts";
@@ -14,6 +15,11 @@ import { regionKeyForContinent, rankRegions, regionRanks, type RankedEntry } fro
 const EXPORT_DIR = process.env.WCA_EXPORT_DIR ?? ".cache/tsv";
 const OUT_DIR = process.env.OUT_DIR ?? "public/data";
 const TOP_N = Number(process.env.TOP_N ?? 100);
+/** Registrants of the upcoming Worlds, from pipeline/fetch-field.mjs (optional). */
+const FIELD_FILE = process.env.FIELD_FILE ?? ".cache/field.json";
+/** Region key of the "Worlds field" pseudo-region. */
+const FIELD = "field";
+const FINAL_ROUNDS = new Set(["f", "c"]);
 const SUPPORTED_MAJOR = "v2";
 
 const table = (name: string) => join(EXPORT_DIR, `WCA_export_${name}.tsv`);
@@ -90,6 +96,26 @@ async function main() {
   });
   log(`${events.length} events, ${compDay.length} competitions, ${personId.length} persons; last Worlds ${worlds.name}`);
 
+  // ---- Upcoming Worlds registrants (optional) ----
+  // person -> events they're registered for. Dropped once that Worlds has started,
+  // since from then on its results speak for themselves.
+  let field: { competition: string; name: string; hash: string; year: string; byPerson: Map<number, Set<string>> } | null = null;
+  if (existsSync(FIELD_FILE)) {
+    const text = readFileSync(FIELD_FILE, "utf8");
+    const f = JSON.parse(text) as { competition: string; name: string; startDate: string; registrants: [string, string[]][] };
+    const [y, m, d] = f.startDate.split("-").map(Number);
+    if (!f.startDate || today < dayOf(y!, m!, d!)) {
+      const byPerson = new Map<number, Set<string>>();
+      for (const [wcaId, evs] of f.registrants) {
+        const p = personIndex.get(wcaId);
+        if (p !== undefined) byPerson.set(p, new Set(evs));
+      }
+      const hash = createHash("sha256").update(text).digest("hex");
+      field = { competition: f.competition, name: f.name, hash, year: f.startDate.slice(0, 4), byPerson };
+      log(`${f.competition}: ${byPerson.size} registered competitors`);
+    }
+  }
+
   // ---- Results (columnar, millions of rows) ----
   const FORMATS = ["1", "2", "3", "5", "a", "m", "h"];
   const formatCode = new Map(FORMATS.map((f, i) => [f, i]));
@@ -97,15 +123,26 @@ async function main() {
   const rRound = new IntColumn(), rFormat = new IntColumn(), rBest = new IntColumn(), rAvg = new IntColumn();
   const rComp = new IntColumn();
   let skipped = 0;
-  // Field order for scanTsv: 0 id, 1 best, 2 average, 3 competition, 4 round type, 5 event, 6 person, 7 format
+  // Podium (pos 1-3) of each event's final at the last Worlds: event index -> person -> place.
+  const worldsComp = compIndex.get(worlds.id)!;
+  const podium = new Map<number, Map<number, number>>();
+  // Field order for scanTsv: 0 id, 1 best, 2 average, 3 competition, 4 round type, 5 event, 6 person, 7 format, 8 pos
   await scanTsv(
     table("results"),
-    ["id", "best", "average", "competition_id", "round_type_id", "event_id", "person_id", "format_id"],
+    ["id", "best", "average", "competition_id", "round_type_id", "event_id", "person_id", "format_id", "pos"],
     (r) => {
     const ev = r.lookup(5, eventIndex);
     if (ev === undefined) return;
     const p = personIndex.get(r.str(6));
     const comp = r.lookup(3, compIndex);
+    if (comp === worldsComp && p !== undefined && FINAL_ROUNDS.has(r.str(4))) {
+      const pos = r.int(8);
+      if (pos >= 1 && pos <= 3 && r.int(1) > 0) {
+        let m = podium.get(ev);
+        if (!m) podium.set(ev, (m = new Map()));
+        m.set(p, pos);
+      }
+    }
     const fmt = r.lookup(7, formatCode);
     const rr = r.lookup(4, roundRank);
     if (p === undefined || comp === undefined || fmt === undefined || rr === undefined) {
@@ -173,6 +210,12 @@ async function main() {
   for (let e = 0; e < events.length; e++) {
     const event = events[e]!;
     const metrics = METRICS.filter((m) => m.applies(event));
+    // Registered competitors also belong to the Worlds field region, per event.
+    const fieldRegions = new Map<number, string[]>();
+    if (field) {
+      for (const [p, evs] of field.byPerson) if (evs.has(event.id)) fieldRegions.set(p, [...personRegions(p), FIELD]);
+    }
+    const regionsOf = fieldRegions.size ? (p: number) => fieldRegions.get(p) ?? personRegions(p) : personRegions;
     const values = new Map<number, Record<string, MetricValue>>();
     const entries: Record<string, RankedEntry[]> = Object.fromEntries(metrics.map((m) => [m.key, []]));
     const prevValues = new Map<number, Record<string, MetricValue>>();
@@ -226,9 +269,9 @@ async function main() {
     }
 
     // Everyone in the top N of any metric, per region.
-    const members = rankRegions(entries, personRegions, TOP_N);
+    const members = rankRegions(entries, regionsOf, TOP_N);
     const prevRanks = Object.fromEntries(
-      metrics.map((m) => [m.key, regionRanks(prevEntries[m.key]!, personRegions, members)]),
+      metrics.map((m) => [m.key, regionRanks(prevEntries[m.key]!, regionsOf, members)]),
     );
     const regions: string[] = [];
     mkdirSync(join(OUT_DIR, event.id), { recursive: true });
@@ -253,12 +296,19 @@ async function main() {
         }
         return c;
       };
-      const rows = [...people].map((p) => ({
-        id: personId[p],
-        name: personName[p],
-        country: countries.get(personCountry[p]!)?.iso2 ?? "",
-        m: Object.fromEntries(Object.entries(values.get(p) ?? {}).map(([key, v]) => [key, cell(p, key, v)])),
-      }));
+      const eventPodium = region === FIELD ? podium.get(e) : undefined;
+      const rows = [...people].map((p) => {
+        const row: { id: string; name: string; country: string; m: object; w?: number } = {
+          id: personId[p]!,
+          name: personName[p]!,
+          country: countries.get(personCountry[p]!)?.iso2 ?? "",
+          m: Object.fromEntries(Object.entries(values.get(p) ?? {}).map(([key, v]) => [key, cell(p, key, v)])),
+        };
+        // Last Worlds' podium gets a crown in the field view (1 gold, 2 silver, 3 bronze).
+        const place = eventPodium?.get(p);
+        if (place) row.w = place;
+        return row;
+      });
       writeFileSync(join(OUT_DIR, event.id, `${region}.json`), JSON.stringify({ comps, rows }));
       regions.push(region);
       usedRegions.add(region);
@@ -273,6 +323,9 @@ async function main() {
     topN: TOP_N,
     movement: { days: MOVEMENT_DAYS, since: isoDay(compareDay) },
     lastWorlds: { id: worlds.id, name: worlds.name, date: isoDay(worlds.day) },
+    field: field && usedRegions.has(FIELD)
+      ? { key: FIELD, name: `Worlds ${field.year} field`, competition: field.competition, competitionName: field.name, hash: field.hash }
+      : undefined,
     metrics: METRICS.map(({ key, label, blurb, description }) => ({ key, label, blurb, description })),
     events: eventMeta,
     continents: [...continents]

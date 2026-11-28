@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { EVENT_SHORT, loadMeta, loadRegion, movement, rank, shortDate, recordTag, regionBests, type Cell, type Meta, type RegionFile } from "./data";
+import { Crown } from "./crown";
 import { Flag } from "./flags";
 import { GraphicDialog, type GraphicData } from "./graphic";
 
@@ -122,6 +123,11 @@ function Controls({ meta, sel, update }: { meta: Meta; sel: Selection; update: (
           <span>Region</span>
           <select value={sel.region} onChange={(e) => update({ region: (e.target as HTMLSelectElement).value })}>
             <option value="world">World</option>
+            {meta.field && available.has(meta.field.key) && (
+              <optgroup label="Worlds">
+                <option value={meta.field.key}>{meta.field.name}</option>
+              </optgroup>
+            )}
             <optgroup label="Continents">
               {meta.continents.filter((c) => available.has(c.key)).map((c) => (
                 <option key={c.key} value={c.key}>{c.name}</option>
@@ -259,6 +265,7 @@ function Rankings({ meta, sel, update }: { meta: Meta; sel: Selection; update: (
                   <a href={`https://www.worldcubeassociation.org/persons/${row.id}`} target="_blank" rel="noopener">
                     {row.name}
                   </a>
+                  {sel.region === "field" && row.w && <Crown place={row.w} worlds={meta.lastWorlds} />}
                 </td>
                 {columns.map((c) => {
                   const cell = row.m[c.key];
@@ -439,6 +446,8 @@ function GraphicButton({ meta, sel }: { meta: Meta; sel: Selection }) {
     const region =
       sel.region === "world"
         ? "World"
+        : sel.region === meta.field?.key
+          ? meta.field!.name
         : ([...meta.continents, ...meta.countries].find((r) => r.key === sel.region)?.name ?? sel.region);
     setData({
       event: meta.events.find((e) => e.id === sel.event)!.name,
@@ -450,6 +459,7 @@ function GraphicButton({ meta, sel }: { meta: Meta; sel: Selection }) {
       rows,
       best: regionBests(file.rows, [sel.metric]).get(sel.metric),
       tag: recordTag(sel.region),
+      field: sel.region === meta.field?.key,
       fileName: `${sel.event}-${sel.region}-${sel.metric}.png`,
       moveSince: meta.movement ? shortDate(meta.movement.since) : "",
       moveDays: meta.movement?.days ?? 10,

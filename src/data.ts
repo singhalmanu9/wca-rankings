@@ -7,6 +7,8 @@ export interface Meta {
   lastWorlds: { id: string; name: string; date: string };
   /** The movement arrows compare against rankings as of `since` (YYYY-MM-DD). */
   movement?: { days: number; since: string };
+  /** Registrants of the upcoming Worlds, as a pseudo-region (absent when there's none). */
+  field?: { key: string; name: string; competition: string; competitionName: string };
   metrics: { key: string; label: string; blurb?: string; description: string }[];
   events: { id: string; name: string; metrics: string[]; regions: string[] }[];
   continents: { key: string; name: string }[];
@@ -35,6 +37,8 @@ export interface Row {
   name: string;
   country: string;
   m: Record<string, Cell>;
+  /** Field view only: place at the last Worlds (1-3), shown as a crown. */
+  w?: number;
 }
 
 export interface RegionFile {
@@ -107,7 +111,7 @@ export const EVENT_SHORT: Record<string, string> = {
 
 export interface RecordTag {
   label: string;
-  kind: "wr" | "cr" | "nr";
+  kind: "wr" | "cr" | "nr" | "lead";
 }
 
 const CONTINENT_RECORD: Record<string, string> = {
@@ -121,6 +125,7 @@ const CONTINENT_RECORD: Record<string, string> = {
 
 /** The tag for the best value in a region, like WCA Live's WR / AsR / NR. */
 export function recordTag(region: string): RecordTag {
+  if (region === "field") return { label: "Leader", kind: "lead" };
   if (region === "world") return { label: "WR", kind: "wr" };
   const cr = CONTINENT_RECORD[region];
   return cr ? { label: cr, kind: "cr" } : { label: "NR", kind: "nr" };
