@@ -460,6 +460,14 @@ footer p {
   th.name {
     z-index: 3;
   }
+  /* Truncate a crowned name before the crown, so the crown stays visible. */
+  td.name a:has(+ .crown) {
+    display: inline-block;
+    max-width: calc(42vw - 52px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+  }
   footer {
     font-size: 11px;
   }
