@@ -150,7 +150,7 @@ export const METRICS: Metric[] = [
   },
   {
     key: "worldsSingle",
-    label: "Single since Worlds",
+    label: "Peak single since Worlds",
     blurb: "Best single since the last World Championship",
     description:
       "Best single at competitions starting on or after the most recent WCA World Championship (that championship included).",
@@ -159,7 +159,7 @@ export const METRICS: Metric[] = [
   },
   {
     key: "worldsAverage",
-    label: "Average since Worlds",
+    label: "Peak average since Worlds",
     blurb: "Best average or mean since the last World Championship",
     description:
       "Best average at competitions starting on or after the most recent WCA World Championship (that championship included).",
