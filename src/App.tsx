@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { EVENT_SHORT, loadMeta, loadRegion, movement, rank, recordTag, regionBests, type Cell, type Meta, type RegionFile } from "./data";
+import { EVENT_SHORT, loadMeta, loadRegion, movement, rank, shortDate, recordTag, regionBests, type Cell, type Meta, type RegionFile } from "./data";
 import { Flag } from "./flags";
 import { GraphicDialog, type GraphicData } from "./graphic";
 
@@ -205,6 +205,7 @@ function Rankings({ meta, sel, update }: { meta: Meta; sel: Selection; update: (
   const countryName = useMemo(() => new Map(meta.countries.map((c) => [c.key.toUpperCase(), c.name])), [meta]);
   const bests = useMemo(() => (file ? regionBests(file.rows, ev.metrics) : new Map<string, number>()), [file, ev]);
   const tag = recordTag(sel.region);
+  const moveSince = meta.movement ? shortDate(meta.movement.since) : "";
   const ranked = useMemo(() => (file ? rank(file.rows, sel.metric, meta.topN) : []), [file, sel.metric, meta.topN]);
 
   if (error) return <p class="error">Couldn't load this table: {error}</p>;
@@ -229,7 +230,7 @@ function Rankings({ meta, sel, update }: { meta: Meta; sel: Selection; update: (
           <thead>
             <tr>
               <th class="rank">#</th>
-              <th class="move" title="Change in rank since a week ago">±</th>
+              <th class="move" title={moveSince ? `Change in rank over the last ${meta.movement!.days} days (since ${moveSince})` : undefined}>±</th>
               <th class="name">Name</th>
               {columns.map((c) => (
                 <th
@@ -252,7 +253,7 @@ function Rankings({ meta, sel, update }: { meta: Meta; sel: Selection; update: (
             {ranked.map(({ rank, row }, i) => (
               <tr key={row.id}>
                 <td class="rank">{ranked[i - 1]?.rank === rank ? "" : rank}</td>
-                <MoveCell cell={row.m[sel.metric]!} rank={rank} onTip={setTip} />
+                <MoveCell cell={row.m[sel.metric]!} rank={rank} since={moveSince} onTip={setTip} />
                 <td class="name">
                   <Flag iso2={row.country} name={countryName.get(row.country) ?? row.country} />
                   <a href={`https://www.worldcubeassociation.org/persons/${row.id}`} target="_blank" rel="noopener">
@@ -450,6 +451,8 @@ function GraphicButton({ meta, sel }: { meta: Meta; sel: Selection }) {
       best: regionBests(file.rows, [sel.metric]).get(sel.metric),
       tag: recordTag(sel.region),
       fileName: `${sel.event}-${sel.region}-${sel.metric}.png`,
+      moveSince: meta.movement ? shortDate(meta.movement.since) : "",
+      moveDays: meta.movement?.days ?? 10,
     });
   };
   return (
@@ -462,12 +465,12 @@ function GraphicButton({ meta, sel }: { meta: Meta; sel: Selection }) {
   );
 }
 
-/** ▲3 / ▼2 / – / NEW next to the rank; hover or focus shows last week's rank and value. */
-function MoveCell({ cell, rank, onTip }: { cell: Cell; rank: number; onTip: (t: Tip | null) => void }) {
-  const m = movement(cell, rank);
+/** ▲3 / ▼2 / – / NEW next to the rank; hover or focus shows the earlier rank and value. */
+function MoveCell({ cell, rank, since, onTip }: { cell: Cell; rank: number; since: string; onTip: (t: Tip | null) => void }) {
+  const m = movement(cell, rank, since);
   const show = (e: Event) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    onTip({ title: m.kind === "new" ? "New this week" : m.text === "–" ? "No change" : `${m.text.slice(1)} place${m.text.slice(1) === "1" ? "" : "s"} ${m.kind}`, detail: m.detail, x: r.left + r.width / 2, y: r.bottom });
+    onTip({ title: m.title, detail: m.detail, x: r.left + r.width / 2, y: r.bottom });
   };
   return (
     <td class="move">

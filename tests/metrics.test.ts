@@ -247,14 +247,15 @@ describe("week-over-week movement", () => {
   });
 
   it("describes the change like power rankings", () => {
-    expect(movement({ s: 1, d: "4.38", pr: 5, pd: "4.51" }, 2)).toMatchObject({
+    expect(movement({ s: 1, d: "4.38", pr: 5, pd: "4.51" }, 2, "Nov 18")).toMatchObject({
       kind: "up",
       text: "▲3",
-      detail: "Last week: #5 · 4.51 → 4.38 (−0.13)",
+      title: "3 places up since Nov 18",
+      detail: "Nov 18: #5 · 4.51 → 4.38 (−0.13)",
     });
-    expect(movement({ s: 1, d: "1:02.00", pr: 1, pd: "1:01.50" }, 3)).toMatchObject({ kind: "down", text: "▼2" });
-    expect(movement({ s: 1, d: "1:02.00", pr: 1, pd: "1:01.50" }, 3).detail).toContain("(+0.50)");
-    expect(movement({ s: 1, d: "4.38", pr: 2, pd: "4.38" }, 2)).toMatchObject({ kind: "same", text: "–" });
-    expect(movement({ s: 1, d: "4.38" }, 7)).toMatchObject({ kind: "new", text: "NEW" });
+    expect(movement({ s: 1, d: "1:02.00", pr: 1, pd: "1:01.50" }, 3, "Nov 18")).toMatchObject({ kind: "down", text: "▼2" });
+    expect(movement({ s: 1, d: "1:02.00", pr: 1, pd: "1:01.50" }, 3, "Nov 18").detail).toContain("(+0.50)");
+    expect(movement({ s: 1, d: "4.38", pr: 2, pd: "4.38" }, 2, "Nov 18")).toMatchObject({ kind: "same", text: "–" });
+    expect(movement({ s: 1, d: "4.38" }, 7, "Nov 18")).toMatchObject({ kind: "new", text: "NEW" });
   });
 });

@@ -14,6 +14,9 @@ export interface GraphicData {
   asOf: string;
   rows: { rank: number; row: Row }[];
   fileName: string;
+  /** Movement column: "Nov 18" and the window length in days. */
+  moveSince: string;
+  moveDays: number;
   /** Region best for this metric, tagged like WCA Live. */
   best: number | undefined;
   tag: RecordTag;
@@ -117,6 +120,12 @@ export async function renderGraphic(g: GraphicData): Promise<Blob> {
 
   // Rows
   const top = y + 52;
+  // Label over the movement column.
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = C.text3;
+  ctx.font = `600 16px ${FONT}`;
+  ctx.fillText(`${g.moveDays}-DAY CHANGE`, PAD + 60, top - 6);
   // Rows shrink a little when a two-line blurb takes their space.
   const rowH = Math.min(66, (SIZE - 92 - top) / 10);
   const flags = await Promise.all(
@@ -143,7 +152,7 @@ export async function renderGraphic(g: GraphicData): Promise<Blob> {
     ctx.fillText(shownRank, PAD + 46, mid);
 
     // Movement since last week, like the table's ± column.
-    const move = movement(row.m[g.metricKey]!, rank);
+    const move = movement(row.m[g.metricKey]!, rank, g.moveSince);
     ctx.textAlign = "left";
     ctx.fillStyle = MOVE[move.kind];
     ctx.font = move.kind === "new" ? `700 16px ${FONT}` : `700 22px ${FONT}`;
@@ -202,13 +211,15 @@ export async function renderGraphic(g: GraphicData): Promise<Blob> {
 
   // Footer
   ctx.textBaseline = "alphabetic";
-  ctx.font = `400 22px ${FONT}`;
+  ctx.font = `400 18px ${FONT}`;
   ctx.fillStyle = C.text3;
   ctx.textAlign = "left";
   const site = (location.host + import.meta.env.BASE_URL).replace(/\/$/, "");
-  ctx.fillText(`Recency Weighted Rankings · ${site}`, PAD, SIZE - 44);
+  const credit = "Data: World Cube Association";
+  const room = SIZE - 2 * PAD - ctx.measureText(credit).width - 24;
+  ctx.fillText(fit(ctx, `Recency Weighted Rankings · ${site}`, room), PAD, SIZE - 44);
   ctx.textAlign = "right";
-  ctx.fillText("Data: World Cube Association", SIZE - PAD, SIZE - 44);
+  ctx.fillText(credit, SIZE - PAD, SIZE - 44);
 
   return new Promise((resolve, reject) =>
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Couldn't create the image"))), "image/png"),

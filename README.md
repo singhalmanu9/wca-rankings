@@ -23,9 +23,11 @@ the round's best single. Best-of rounds of other events are skipped. The
 rolling columns only rank people with a result in the event in the last 2 years.
 
 The ± column shows how each competitor's rank in the selected column changed
-since a week ago (▲ up, ▼ down, NEW if they didn't qualify then). The build
-computes every ranking a second time as of 7 days before the export, using only
-competitions that started by then; hover the arrow for last week's value.
+over the last 10 days (▲ up, ▼ down, NEW if they didn't qualify then). The build
+computes every ranking a second time as of 10 days before the export, using only
+competitions that started by then; 10 rather than 7 so a weekend competition
+still counts while its results take a few days to be posted. Hover the arrow
+for the comparison date and the earlier value.
 
 All parameters live at the top of [pipeline/metrics.ts](pipeline/metrics.ts).
 To add a ranking system, add an entry to `METRICS` there; the build and the site

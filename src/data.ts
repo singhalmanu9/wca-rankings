@@ -5,6 +5,8 @@ export interface Meta {
   builtAt: string;
   topN: number;
   lastWorlds: { id: string; name: string; date: string };
+  /** The movement arrows compare against rankings as of `since` (YYYY-MM-DD). */
+  movement?: { days: number; since: string };
   metrics: { key: string; label: string; blurb?: string; description: string }[];
   events: { id: string; name: string; metrics: string[]; regions: string[] }[];
   continents: { key: string; name: string }[];
@@ -22,9 +24,9 @@ export interface Cell {
   c?: string;
   /** Date of that competition, YYYY-MM-DD. */
   t?: string;
-  /** Rank in this region a week ago (absent if they didn't qualify then). */
+  /** Rank in this region on the comparison date (absent if they didn't qualify then). */
   pr?: number;
-  /** Display value a week ago. */
+  /** Display value on the comparison date. */
   pd?: string;
 }
 
@@ -139,7 +141,9 @@ export interface Movement {
   kind: "up" | "down" | "same" | "new";
   /** "▲3", "▼2", "–" or "NEW". */
   text: string;
-  /** "Last week: #5 · 4.51 → 4.38 (−0.13)" */
+  /** "3 places up since Nov 18" */
+  title: string;
+  /** "Nov 18: #5 · 4.51 → 4.38 (−0.13)" */
   detail: string;
 }
 
@@ -153,18 +157,24 @@ function displayNumber(d: string): number | null {
   return parts.reduce((acc, x) => acc * 60 + x, 0);
 }
 
-/** How a cell's rank changed since last week (power-rankings style). */
-export function movement(cell: Cell, rank: number): Movement {
-  if (cell.pr === undefined) return { kind: "new", text: "NEW", detail: "Not ranked a week ago" };
+/** "2026-11-18" -> "Nov 18" */
+export const shortDate = (iso: string) =>
+  new Date(iso + "T00:00:00Z").toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+
+/** How a cell's rank changed since `since` ("Nov 18"), power-rankings style. */
+export function movement(cell: Cell, rank: number, since: string): Movement {
+  if (cell.pr === undefined)
+    return { kind: "new", text: "NEW", title: `New since ${since}`, detail: `Not in the rankings on ${since}` };
   const diff = cell.pr - rank;
-  let detail = `Last week: #${cell.pr}`;
+  let detail = `${since}: #${cell.pr}`;
   if (cell.pd && cell.pd !== cell.d) {
     detail += ` · ${cell.pd} → ${cell.d}`;
     const a = displayNumber(cell.pd);
     const b = displayNumber(cell.d);
     if (a !== null && b !== null) detail += ` (${b >= a ? "+" : "−"}${Math.abs(b - a).toFixed(2)})`;
   } else if (cell.pd) detail += ` · ${cell.d}, unchanged`;
-  if (diff > 0) return { kind: "up", text: `▲${diff}`, detail };
-  if (diff < 0) return { kind: "down", text: `▼${-diff}`, detail };
-  return { kind: "same", text: "–", detail };
+  const places = (n: number) => `${n} place${n === 1 ? "" : "s"}`;
+  if (diff > 0) return { kind: "up", text: `▲${diff}`, title: `${places(diff)} up since ${since}`, detail };
+  if (diff < 0) return { kind: "down", text: `▼${-diff}`, title: `${places(-diff)} down since ${since}`, detail };
+  return { kind: "same", text: "–", title: `No change since ${since}`, detail };
 }

@@ -148,12 +148,12 @@ async function main() {
   log("sorted");
 
   const ctx: MetricContext = { today, lastWorldsDay: worlds.day };
-  // The same rankings as of a week ago, for the movement arrows: only
+  // The same rankings as of MOVEMENT_DAYS ago, for the movement arrows: only
   // competitions that started by then, and "today" moved back too.
-  const weekAgo = today - MOVEMENT_DAYS;
+  const compareDay = today - MOVEMENT_DAYS;
   const prevCtx: MetricContext = {
-    today: weekAgo,
-    lastWorldsDay: Math.max(...worldsDays.filter((d) => d <= weekAgo)),
+    today: compareDay,
+    lastWorldsDay: Math.max(...worldsDays.filter((d) => d <= compareDay)),
   };
   rmSync(OUT_DIR, { recursive: true, force: true });
   mkdirSync(OUT_DIR, { recursive: true });
@@ -208,7 +208,7 @@ async function main() {
       if (!any) continue;
       values.set(p, mine);
       let k = rounds.length;
-      while (k > 0 && rounds[k - 1]!.day > weekAgo) k--;
+      while (k > 0 && rounds[k - 1]!.day > compareDay) k--;
       const before = k === rounds.length ? rounds : rounds.slice(0, k);
       const prev: Record<string, MetricValue> = {};
       for (const m of metrics) {
@@ -271,6 +271,7 @@ async function main() {
     exportDate: exportDate.toISOString(),
     builtAt: new Date().toISOString(),
     topN: TOP_N,
+    movement: { days: MOVEMENT_DAYS, since: isoDay(compareDay) },
     lastWorlds: { id: worlds.id, name: worlds.name, date: isoDay(worlds.day) },
     metrics: METRICS.map(({ key, label, blurb, description }) => ({ key, label, blurb, description })),
     events: eventMeta,
@@ -286,8 +287,9 @@ async function main() {
   log("done");
 }
 
-/** How far back the movement arrows compare. */
-const MOVEMENT_DAYS = 7;
+/** How far back the movement arrows compare. Longer than a week so a weekend
+ * competition still counts while its results take a few days to be posted. */
+const MOVEMENT_DAYS = 10;
 
 const round4 = (x: number) => Math.round(x * 10_000) / 10_000;
 
